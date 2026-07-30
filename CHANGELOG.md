@@ -6,6 +6,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-30
+
+### Added
+
+- **Eleven LLM providers** behind one interface (OpenRouter, Cerebras, Groq, Google, Mistral,
+  OpenAI, Anthropic, DeepSeek, xAI, Z.ai, and a custom OpenAI-compatible endpoint for Ollama /
+  LM Studio). Keys are entered from the UI and stored in `data/local/providers.json`; the server
+  returns only `configured`/`keyState`, never the key itself.
+- **Failover chain** that tries other models on the same provider before switching provider, with
+  per-reason penalty cooldowns (a truncation lasts an hour, a 429 five minutes) and an anti-brick
+  rebuild when everything is penalized.
+- **Profile tab**: search criteria in plain sight, per-channel and per-status counts, score
+  distribution, and the active model with its failover chain.
+- New endpoints: `/api/ai/providers`, `/api/ai/providers/:id/key`, `/api/ai/providers/:id/models`,
+  `/api/ai/primary`, `/api/ai/health`, `/api/stats`.
+
+### Changed
+
+- **Design system**: semantic colour tokens with a real light/dark toggle (system-aware, persisted),
+  self-hosted variable fonts, and twelve shared UI primitives replacing hand-written variants.
+- Accessibility: labels on every control, a global focus-visible style, `role="tablist"` navigation
+  with arrow keys, an accessible score badge (no longer colour-only), `prefers-reduced-motion`
+  support, and a proper confirmation dialog instead of `window.confirm`.
+
+### Fixed
+
+- The listing grid now refreshes when a run finishes, filters survive tab switches, search is
+  debounced with request cancellation, and a dead server shows an error instead of an empty page.
+
 ## [1.0.1] - 2026-07-30
 
 ### Fixed
@@ -43,6 +72,7 @@ First public release.
   testing without touching the real archive.
 - **CI** on Node 20 and 22 (type-check + 101 tests) and a Windows release bundle.
 
-[Unreleased]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/DiegoRiccardi1234/house-finder/releases/tag/v1.0.0

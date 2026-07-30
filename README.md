@@ -20,9 +20,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/run.png" alt="Run panel with live log" width="49%">
+  <img src="docs/profile.png" alt="Profile tab: search criteria, personal stats and AI status" width="880">
+</p>
+
+<p align="center">
+  <img src="docs/providers.png" alt="AI provider panel: 11 providers, keys stored locally" width="49%">
   &nbsp;
-  <img src="docs/config.png" alt="Config editor" width="49%">
+  <img src="docs/run.png" alt="Run panel with live log" width="49%">
 </p>
 
 ---
@@ -44,6 +48,13 @@ visit?" verdict** — plus a dashboard to track what you already contacted or di
   fields* (furnished, floor, lift, energy class, tenant constraints, contact type) **and** the score
   in the same call. Every field is `zod` + `.catch(null)`: a malformed free-tier JSON degrades a
   single field instead of failing the run.
+- **Eleven LLM providers, one interface** — OpenRouter, Cerebras, Groq, Google Gemini, Mistral,
+  OpenAI, Anthropic, DeepSeek, xAI, Z.ai, plus a **custom** OpenAI-compatible endpoint that covers
+  Ollama and LM Studio. Keys are entered in the UI and stored in `data/local/` — the server never
+  sends them back to the browser. Failover tries other models on the same host first, then other
+  providers.
+- **Profile tab** — what the app is doing for you: your criteria in plain sight, how many listings
+  per channel and status, score distribution, and which model is answering right now.
 - **Automatic, health-aware model selection** — before using a model the app queries OpenRouter's
   `/endpoints` (free, no inference, no quota), ranks the healthy ones by uptime band, prefers the
   26-40B instruct sweet spot over giants that truncate, applies **sticky empirical penalties**
@@ -53,7 +64,7 @@ visit?" verdict** — plus a dashboard to track what you already contacted or di
   per-channel isolation with incremental saves, store mutex.
 - **Local web dashboard** — React + Tailwind: filters, live run log over SSE, favourite / contacted /
   discarded, in-app config editor, one-click archive cleanup.
-- **Tested** — 102 tests (`node:test`), `tsc --strict` on both the server and the UI, CI on Node 20 and 22.
+- **Tested** — 135 tests (`node:test`), `tsc --strict` on both the server and the UI, CI on Node 20 and 22.
 
 ### 📡 Channels
 
@@ -153,7 +164,7 @@ npm run try:email           # read unread mail, print extracted listings (non-de
 npm run try:source -- <portal> <profile>   # single scraper, headed
 npm run debug:page -- <portal> <profile>   # dump HTML to tune selectors
 npm run monitor             # CLI run (e-mail; + scrapers with ENABLE_SCRAPERS=1)
-npm test                    # 102 tests
+npm test                    # 135 tests
 npm run typecheck           # tsc --noEmit (and: npm --prefix ui run typecheck)
 ```
 
@@ -193,6 +204,13 @@ più una dashboard per tenere traccia di chi hai già contattato o scartato.
   normalizzati** (arredato, piano, ascensore, classe energetica, vincoli inquilino, tipo contatto)
   **e** il voto nella stessa chiamata. Ogni campo è `zod` + `.catch(null)`: un JSON sporco del free
   tier degrada un singolo campo invece di far fallire il run.
+- **Undici provider LLM, una sola interfaccia** — OpenRouter, Cerebras, Groq, Google Gemini,
+  Mistral, OpenAI, Anthropic, DeepSeek, xAI, Z.ai, più un endpoint **personale** OpenAI-compatible
+  che copre Ollama e LM Studio. Le key si inseriscono dalla UI e restano in `data/local/`: il
+  server non le rimanda mai al browser. Il failover prova prima altri modelli dello stesso host,
+  poi gli altri provider.
+- **Tab Profilo** — cosa sta facendo l'app per te: i tuoi criteri in chiaro, quanti annunci per
+  canale e per stato, la distribuzione dei voti, e quale modello sta rispondendo adesso.
 - **Selezione modelli automatica e health-aware** — prima di usare un modello l'app interroga
   `/endpoints` di OpenRouter (gratis, nessuna inferenza, nessuna quota), ordina i sani a fasce di
   uptime, preferisce lo sweet spot 26-40B instruct ai giganti che troncano, applica **penalità
@@ -202,7 +220,7 @@ più una dashboard per tenere traccia di chi hai già contattato o scartato.
   isolati con save incrementale, mutex sullo store.
 - **Dashboard web locale** — React + Tailwind: filtri, log del run dal vivo via SSE, preferiti /
   contattati / scartati, editor della config, pulizia dell'archivio in un click.
-- **Testato** — 102 test (`node:test`), `tsc --strict` su server e UI, CI su Node 20 e 22.
+- **Testato** — 135 test (`node:test`), `tsc --strict` su server e UI, CI su Node 20 e 22.
 
 ### 📡 Canali
 
@@ -304,7 +322,7 @@ npm run try:email           # legge le mail non lette e stampa gli annunci estra
 npm run try:source -- <portale> <profilo>   # un singolo scraper, headed
 npm run debug:page -- <portale> <profilo>   # dump HTML per tarare i selettori
 npm run monitor             # run da CLI (email; + scraper con ENABLE_SCRAPERS=1)
-npm test                    # 102 test
+npm test                    # 135 test
 npm run typecheck           # tsc --noEmit (e: npm --prefix ui run typecheck)
 ```
 
