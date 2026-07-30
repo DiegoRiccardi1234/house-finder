@@ -1,4 +1,14 @@
-import type { StoredListing, Meta, ListingStatus, ListingFilters, SearchProfile } from './types';
+import type {
+  StoredListing,
+  Meta,
+  ListingStatus,
+  ListingFilters,
+  SearchProfile,
+  Stats,
+  AiHealth,
+  ProvidersState,
+  SaveKeyResult,
+} from './types';
 
 async function json<T>(r: Response): Promise<T> {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -24,7 +34,26 @@ const jsonHeaders = { 'Content-Type': 'application/json' };
 export const api = {
   meta: () => fetch('/api/meta').then((r) => json<Meta>(r)),
 
-  listings: (f: ListingFilters) => fetch(`/api/listings${buildQuery(f)}`).then((r) => json<StoredListing[]>(r)),
+  listings: (f: ListingFilters, signal?: AbortSignal) =>
+    fetch(`/api/listings${buildQuery(f)}`, { signal }).then((r) => json<StoredListing[]>(r)),
+
+  stats: () => fetch('/api/stats').then((r) => json<Stats>(r)),
+
+  aiHealth: () => fetch('/api/ai/health').then((r) => json<AiHealth>(r)),
+
+  aiProviders: () => fetch('/api/ai/providers').then((r) => json<ProvidersState>(r)),
+
+  saveProviderKey: (id: string, body: { key?: string; baseUrl?: string }) =>
+    fetch(`/api/ai/providers/${encodeURIComponent(id)}/key`, {
+      method: 'PUT',
+      headers: jsonHeaders,
+      body: JSON.stringify(body),
+    }).then((r) => json<SaveKeyResult>(r)),
+
+  setPrimaryProvider: (body: { provider: string; model?: string; visionModel?: string }) =>
+    fetch('/api/ai/primary', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(body) }).then((r) =>
+      json<{ ok: boolean }>(r),
+    ),
 
   setStatus: (key: string, status: ListingStatus) =>
     fetch(`/api/listings/${encodeURIComponent(key)}/status`, {

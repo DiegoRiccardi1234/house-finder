@@ -100,20 +100,72 @@ export function sizeTier(sizeB: number | null): number {
   return 2; // gigante: deprioritizzato
 }
 
-export type PenaltyReason = 'length' | 'empty' | '429';
-const PENALTY_WEIGHT: Record<PenaltyReason, number> = { length: 3, empty: 3, '429': 1 };
-const penalties = new Map<string, number>();
+export type PenaltyReason = 'length' | 'empty' | 'malformed' | '429' | '403' | 'timeout' | 'json_fail';
 
-/** Registra una penalità empirica per un modello (troncamento/vuoto/throttle). Sticky per il task. */
+/**
+ * Peso e durata della penalità dipendono da **cosa** è andato storto:
+ * un troncamento è strutturale (quel modello con quel prompt tronca sempre, ritentarlo
+ * brucia quota), un 429 è transitorio (il throttle passa). Prima scadevano tutte insieme
+ * solo a fine run.
+ */
+const PENALTY: Record<PenaltyReason, { weight: number; ttlMs: number }> = {
+  length: { weight: 3, ttlMs: 60 * 60_000 },
+  malformed: { weight: 3, ttlMs: 60 * 60_000 },
+  empty: { weight: 3, ttlMs: 3 * 60_000 },
+  json_fail: { weight: 3, ttlMs: 3 * 60_000 },
+  timeout: { weight: 2, ttlMs: 15 * 60_000 },
+  '429': { weight: 1, ttlMs: 5 * 60_000 },
+  '403': { weight: 1, ttlMs: 5 * 60_000 },
+};
+
+interface PenaltyEntry {
+  weight: number;
+  reason: PenaltyReason;
+  expiresAt: number;
+}
+const penalties = new Map<string, PenaltyEntry[]>();
+
+/** Orologio iniettabile: i test sui cooldown non possono aspettare un'ora. */
+let now: () => number = () => Date.now();
+export function setPenaltyClock(fn: () => number): void {
+  now = fn;
+}
+
+/** Registra una penalità empirica per un modello. La chiave può essere `provider::model`. */
 export function recordPenalty(slug: string, reason: PenaltyReason): void {
-  penalties.set(slug, (penalties.get(slug) ?? 0) + PENALTY_WEIGHT[reason]);
+  const { weight, ttlMs } = PENALTY[reason];
+  const list = penalties.get(slug) ?? [];
+  list.push({ weight, reason, expiresAt: now() + ttlMs });
+  penalties.set(slug, list);
 }
+
 export function penaltyScore(slug: string): number {
-  return penalties.get(slug) ?? 0;
+  const list = penalties.get(slug);
+  if (!list) return 0;
+  const t = now();
+  let sum = 0;
+  let alive = 0;
+  for (const p of list) {
+    if (p.expiresAt > t) {
+      sum += p.weight;
+      alive++;
+    }
+  }
+  if (alive === 0) penalties.delete(slug);
+  return sum;
 }
-/** Azzera le penalità (a inizio task/run: la salute empirica è per-task). */
-export function clearPenalties(): void {
-  penalties.clear();
+
+/** Azzera le penalità: tutte, o solo quelle di un motivo (a inizio run si scordano i troncamenti). */
+export function clearPenalties(reason?: PenaltyReason): void {
+  if (!reason) {
+    penalties.clear();
+    return;
+  }
+  for (const [slug, list] of penalties) {
+    const kept = list.filter((p) => p.reason !== reason);
+    if (kept.length) penalties.set(slug, kept);
+    else penalties.delete(slug);
+  }
 }
 
 export interface RankOptions {
@@ -126,6 +178,12 @@ export interface RankOptions {
   bandStep?: number;
   /** Quality-floor: taglia minima in B per non essere un "toy" (default 26). Solo se la taglia è nota. */
   minSizeB?: number;
+  /**
+   * Da dove leggere la penalità di un candidato. Serve col multi-provider: lo stesso id
+   * (`llama-3.3-70b`) vive su host diversi e va penalizzato per coppia, non per nome.
+   * `rankModels` resta così puro e mono-provider.
+   */
+  penaltyOf?: (slug: string) => number;
 }
 
 /**
@@ -208,11 +266,12 @@ export function rankModels(candidates: string[], healths: Map<string, ModelHealt
 
   const best = eligible.reduce((m, c) => Math.max(m, healths.get(c)!.uptime5m), 0);
   const tier = (u: number): number => (bandStep > 0 ? Math.floor((best - u) / bandStep) : best - u);
+  const penaltyOf = opts.penaltyOf ?? penaltyScore;
   const key = (s: string): number[] => {
     const h = healths.get(s)!;
     const meta = parseModelMeta(s);
     return [
-      penaltyScore(s), // 1. penalizzati in fondo (empirico > per-nome)
+      penaltyOf(s), // 1. penalizzati in fondo (empirico > per-nome)
       tier(h.uptime5m), // 2. salute (fascia)
       sizeTier(meta.sizeB), // 3. taglia: sweet-spot 26-40B, giganti in fondo (proxy velocità sul free)
       meta.instruct ? 0 : 1, // 4. instruct/non-reasoning preferito
@@ -310,3 +369,21 @@ export async function pickHealthyModels(candidates: string[], opts: PickOptions 
 export async function pickModelsForTask(candidates: string[], opts: PickOptions = {}): Promise<string[]> {
   return rankModels(candidates, await fetchHealths(candidates, opts), opts);
 }
+
+/**
+ * La salute pubblicata è una peculiarità di OpenRouter: nessun altro provider espone
+ * `/models/{slug}/endpoints`. Dietro questa interfaccia, gli altri usano una sonda vuota —
+ * che è sicura per costruzione: con una mappa vuota tutti i candidati finiscono in "salute
+ * sconosciuta", quindi restano nell'ordine-seed e il ranking degrada a preferenza-pool.
+ */
+export interface HealthProbe {
+  probe(slugs: string[], opts?: PickOptions): Promise<Map<string, ModelHealth>>;
+}
+
+export const openRouterProbe: HealthProbe = {
+  probe: (slugs, opts = {}) => fetchHealths(slugs, opts),
+};
+
+export const noopProbe: HealthProbe = {
+  probe: async () => new Map<string, ModelHealth>(),
+};

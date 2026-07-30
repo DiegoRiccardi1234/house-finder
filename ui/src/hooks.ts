@@ -1,35 +1,82 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
 import type { Meta, StoredListing, ListingFilters, ListingStatus, SseEvent } from './types';
 
-export function useMeta(): Meta | null {
-  const [meta, setMeta] = useState<Meta | null>(null);
+/** Ritarda un valore: evita una fetch per ogni tasto digitato nella ricerca. */
+export function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value);
   useEffect(() => {
-    api.meta().then(setMeta).catch(() => setMeta(null));
-  }, []);
-  return meta;
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
 }
 
-export function useListings(filters: ListingFilters) {
-  const [items, setItems] = useState<StoredListing[]>([]);
-  const [loading, setLoading] = useState(false);
+export function useMeta(reloadToken = 0): { meta: Meta | null; error: string | null } {
+  const [meta, setMeta] = useState<Meta | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api
+      .meta()
+      .then((m) => {
+        if (!alive) return;
+        setMeta(m);
+        setError(null);
+      })
+      .catch((e: Error) => {
+        // Prima l'errore veniva inghiottito: server spento e UI muta erano indistinguibili.
+        if (alive) setError(e.message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [reloadToken]);
+  return { meta, error };
+}
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setItems(await api.listings(filters));
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [filters]);
+export function useListings(filters: ListingFilters, refreshToken = 0) {
+  const [items, setItems] = useState<StoredListing[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [manual, setManual] = useState(0);
+  const abort = useRef<AbortController | null>(null);
+
+  // Solo il testo libero va ritardato: i select cambiano di rado e devono rispondere subito.
+  const q = useDebounced(filters.q, 250);
+  const effective = useMemo<ListingFilters>(() => ({ ...filters, q }), [
+    filters.channel,
+    filters.status,
+    filters.city,
+    filters.minScore,
+    filters.sort,
+    filters.arredato,
+    filters.soloPrivati,
+    q,
+  ]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    abort.current?.abort(); // la risposta lenta di una query vecchia non deve sovrascrivere la nuova
+    const ac = new AbortController();
+    abort.current = ac;
+    setLoading(true);
+    setError(null);
+    api
+      .listings(effective, ac.signal)
+      .then((rows) => {
+        if (!ac.signal.aborted) setItems(rows);
+      })
+      .catch((e: Error) => {
+        if (ac.signal.aborted || e.name === 'AbortError') return;
+        setError(e.message);
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setLoading(false);
+      });
+    return () => ac.abort();
+  }, [effective, refreshToken, manual]);
+
+  const refresh = useCallback(() => setManual((n) => n + 1), []);
 
   const setStatus = useCallback(async (key: string, status: ListingStatus) => {
     try {

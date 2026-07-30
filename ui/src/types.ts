@@ -73,9 +73,77 @@ export interface ChannelMeta {
 
 export interface Meta {
   aiConfigured: boolean;
+  aiProvider: string;
   imapConfigured: boolean;
   fbSessionExists: boolean;
+  browsersInstalled: boolean;
   channels: ChannelMeta[];
+}
+
+export interface Stats {
+  total: number;
+  byStatus: Record<ListingStatus, number>;
+  byChannel: Record<string, number>;
+  bySource: Record<string, number>;
+  scored: number;
+  withFields: number;
+  withPhotos: number;
+  avgScore: number | null;
+  worthVisit: number;
+  scoreBuckets: { '0-24': number; '25-49': number; '50-74': number; '75-100': number };
+  withPrice: number;
+  avgPrice: number | null;
+  byCity: Record<string, number>;
+  firstSeen: string | null;
+  lastSeen: string | null;
+}
+
+export interface ChainStep {
+  provider: string;
+  model: string;
+  uptime5m: number | null;
+  penalty: number;
+  state: 'healthy' | 'unknown' | 'penalized';
+}
+
+export interface AiHealth {
+  configured: boolean;
+  provider: string | null;
+  model: string | null;
+  probe: 'openrouter' | 'none';
+  chain: ChainStep[];
+  reason?: string;
+}
+
+export type KeyState = 'missing' | 'ok' | 'invalid';
+
+export interface ProviderInfo {
+  id: string;
+  label: string;
+  free: boolean;
+  signup: string;
+  hint: string;
+  needsEndpoint: boolean;
+  keyOptional: boolean;
+  configured: boolean;
+  keyState: KeyState;
+  baseUrl: string;
+  isPrimary: boolean;
+  caps: { json: 'native' | 'prefill' | 'prompt'; vision: boolean; health: 'openrouter' | 'none' };
+}
+
+export interface ProvidersState {
+  primary: string;
+  providers: ProviderInfo[];
+}
+
+export interface SaveKeyResult {
+  ok: boolean;
+  configured: boolean;
+  keyState: KeyState;
+  models?: string[];
+  recommended?: string | null;
+  error?: string;
 }
 
 export interface SearchProfile {

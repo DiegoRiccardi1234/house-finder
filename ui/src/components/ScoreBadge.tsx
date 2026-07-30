@@ -1,25 +1,44 @@
 import type { AiScore } from '../types';
 
-function color(score: number): string {
-  if (score >= 75) return 'bg-emerald-600 text-white';
-  if (score >= 50) return 'bg-amber-500 text-white';
-  return 'bg-rose-600 text-white';
+/**
+ * Voto AI. Il colore da solo non basta (verde/rosso è il caso classico di
+ * fallimento per i daltonici): la fascia è indicata anche da una forma, il numero
+ * è sempre leggibile e `aria-label` dice tutto per esteso, `worthVisit` compreso.
+ */
+function band(score: number): { label: string; mark: string; cls: string } {
+  if (score >= 75) return { label: 'alto', mark: '▲', cls: 'bg-ok-soft text-ok border-ok/40' };
+  if (score >= 50) return { label: 'medio', mark: '■', cls: 'bg-warn-soft text-warn border-warn/40' };
+  return { label: 'basso', mark: '▼', cls: 'bg-danger-soft text-danger border-danger/40' };
 }
 
 export function ScoreBadge({ ai }: { ai: AiScore | null }) {
   if (!ai) {
     return (
-      <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-lg bg-stone-300 px-2 text-sm font-bold text-stone-600 dark:bg-stone-700 dark:text-stone-300">
+      <span
+        aria-label="Non ancora valutato dall'AI"
+        className="inline-flex h-9 min-w-9 items-center justify-center rounded-[var(--radius-btn)] border border-hair bg-surface-3 px-2 text-sm font-bold text-faint"
+      >
         –
       </span>
     );
   }
+  const b = band(ai.score);
   return (
     <span
-      title={ai.worthVisit ? 'Vale una visita' : 'Non prioritaria'}
-      className={`inline-flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm font-bold ${color(ai.score)}`}
+      aria-label={`Voto ${ai.score} su 100, fascia ${b.label}. ${ai.worthVisit ? 'Vale una visita' : 'Non prioritaria'}`}
+      className={`inline-flex h-9 items-center gap-1 rounded-[var(--radius-btn)] border px-2 ${b.cls}`}
     >
-      {ai.score}
+      <span aria-hidden="true" className="text-[0.6rem] leading-none">
+        {b.mark}
+      </span>
+      <span className="text-sm font-extrabold tabular-nums leading-none">{ai.score}</span>
+      {ai.worthVisit && (
+        <span
+          aria-hidden="true"
+          title="Vale una visita"
+          className="ml-0.5 h-1.5 w-1.5 rounded-full bg-current"
+        />
+      )}
     </span>
   );
 }

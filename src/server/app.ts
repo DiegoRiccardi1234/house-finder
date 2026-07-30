@@ -11,6 +11,9 @@ import { looksLikeListing, isShortTerm } from '../sources/fb-parse.js';
 import { FB_STATE_PATH } from '../config/facebook.js';
 import { configReadPath, localConfigPath } from '../config/paths.js';
 import { chromium } from 'playwright';
+import { createAiRouter } from './aiRoutes.js';
+import { primaryProvider } from '../ai/credentials.js';
+import { buildStats } from './stats.js';
 import { RunManager, RunBusyError } from './runManager.js';
 import { SearchesSchema, FbConfigSchema, StatusSchema, RunBodySchema } from './schemas.js';
 
@@ -141,6 +144,7 @@ export function createApp(deps: AppDeps): Express {
     const needsBrowser = browser ? '' : 'browser non installato (npx playwright install chromium)';
     res.json({
       aiConfigured: aiConfigured(),
+      aiProvider: primaryProvider(),
       imapConfigured: imap,
       fbSessionExists,
       browsersInstalled: browser,
@@ -189,9 +193,19 @@ export function createApp(deps: AppDeps): Express {
     }
   });
 
+  app.use('/api/ai', createAiRouter());
+
   // --- Listings ---
   app.get('/api/listings', (req, res) => {
     res.json(queryListings(store.all(), req.query));
+  });
+
+  /**
+   * Aggregati per il tab Profilo. Esiste come endpoint perché l'alternativa è far scaricare
+   * al browser mezzo megabyte di annunci per calcolarne dodici numeri, a ogni apertura.
+   */
+  app.get('/api/stats', (_req, res) => {
+    res.json(buildStats(store.all()));
   });
 
   app.get('/api/listings/:key', (req, res) => {

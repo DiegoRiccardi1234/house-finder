@@ -1,10 +1,13 @@
-import OpenAI from 'openai';
 import { z } from 'zod';
 import type { AiScore, ContactType, Furnished, Listing, ListingFields } from '../core/types.js';
 import { dedupKey } from '../core/state.js';
 import { loadCriteria } from '../config/criteria.js';
-import { reasoningCandidates } from '../config/models.js';
-import { pickModelsForTask, recordPenalty, clearPenalties } from './endpoint-health.js';
+import { recordPenalty, clearPenalties } from './endpoint-health.js';
+import { buildChainForTask } from './failover.js';
+import { configuredProviders, markKeyInvalid } from './credentials.js';
+import { getProvider } from './providers/registry.js';
+import { classifyFailure, InvalidKeyError } from './providers/errors.js';
+import { refKey, type ModelRef } from './providers/types.js';
 
 /** Risultato per annuncio: campi normalizzati + giudizio, da UNA sola chiamata AI. */
 export interface ScoreResult {
@@ -66,41 +69,21 @@ const SYSTEM = [
   'Dai anche: verdict (una riga), pros (max 3), cons (max 3), worthVisit (true/false).',
 ].join('\n');
 
+/** Almeno un provider con credenziali: il nome resta, lo usano server e pipeline. */
 export function configured(): boolean {
-  return !!process.env.OPENROUTER_API_KEY;
+  return configuredProviders().length > 0;
 }
 
-// Modello free di default (validato). Override via .env AI_MODEL.
-const DEFAULT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 const CHUNK = 10; // annunci per chiamata
-
-function modelChain(): string[] {
-  const primary = process.env.AI_MODEL ?? DEFAULT_MODEL;
-  const fallback = process.env.AI_MODEL_FALLBACK;
-  const chain = [primary];
-  if (fallback && fallback !== primary) chain.push(fallback);
-  return chain;
-}
 
 function isRetryable(e: unknown): boolean {
   const status = (e as { status?: number })?.status;
-  if (status === 429 || (status && status >= 500)) return true;
+  if (status && status >= 500) return true;
   const msg = (e as Error)?.message ?? '';
-  return /provider returned error|rate.?limit|429|timeout|temporarily/i.test(msg);
+  return /provider returned error|timeout|temporarily/i.test(msg);
 }
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function client(): OpenAI {
-  return new OpenAI({
-    baseURL: 'https://openrouter.ai/api/v1',
-    apiKey: process.env.OPENROUTER_API_KEY,
-    defaultHeaders: { 'X-Title': 'House Finder' },
-    // Un modello free lento/appeso NON deve bloccare il run: aborta e fai failover al prossimo.
-    timeout: Number(process.env.AI_TIMEOUT_MS ?? 60_000),
-    maxRetries: 1,
-  });
-}
 
 function normBool(v: boolean | string | null): boolean | null {
   if (typeof v === 'boolean') return v;
@@ -152,23 +135,21 @@ function toResult(it: ItemT): ScoreResult {
   };
 }
 
-/** Una chiamata a un modello per un gruppo di annunci; lancia in caso di errore di rete/HTTP. */
-async function callModel(
-  model: string,
-  listings: Listing[],
-): Promise<{ map: Map<string, ScoreResult>; finishReason: string | null }> {
-  const res = await client().chat.completions.create({
-    model,
-    response_format: { type: 'json_object' },
+/**
+ * Una chiamata a un modello per un gruppo di annunci; lancia in caso di errore.
+ * Troncamento e risposta vuota arrivano già come errori tipizzati dal provider
+ * (`TruncatedCompletionError`/`EmptyCompletionError`): il chiamante li classifica.
+ */
+async function callModel(ref: ModelRef, listings: Listing[]): Promise<Map<string, ScoreResult>> {
+  const reply = await getProvider(ref.provider).chat({
+    model: ref.model,
+    json: true,
     messages: [
       { role: 'system', content: SYSTEM },
       { role: 'user', content: buildPrompt(listings) },
     ],
   });
-  const choice = res.choices?.[0]; // il free a volte risponde senza `choices` → trattalo come vuoto
-  const content = choice?.message?.content ?? '{}';
-  // finish_reason='length' = completamento tagliato → JSON inaffidabile (segnale d'oro, CLAUDE.md §79).
-  return { map: parseScoreResponse(content), finishReason: choice?.finish_reason ?? null };
+  return parseScoreResponse(reply.text);
 }
 
 /**
@@ -190,37 +171,37 @@ export function parseScoreResponse(content: string): Map<string, ScoreResult> {
  * su troncamento/vuoto/429 **penalizza** il modello e passa al successivo (NON ritenta lo stesso);
  * ritenta lo stesso solo su errori transitori non-429 (5xx/timeout).
  */
-async function callChunk(listings: Listing[], chain: string[], log: LogFn = () => {}): Promise<Map<string, ScoreResult>> {
+async function callChunk(listings: Listing[], chain: ModelRef[], log: LogFn = () => {}): Promise<Map<string, ScoreResult>> {
   const warn = (m: string) => {
     console.error(m);
     log(m); // visibile anche nella UI (SSE)
   };
-  const MAX_ATTEMPTS = 2; // solo per errori transitori non-429
-  const models = chain.length ? chain : modelChain();
-  for (const model of models) {
+  const MAX_ATTEMPTS = 2; // solo per errori transitori (5xx/rete)
+  for (const ref of chain) {
+    const label = `${ref.provider}/${ref.model}`;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        const { map, finishReason } = await callModel(model, listings);
-        if (finishReason === 'length') {
-          recordPenalty(model, 'length');
-          warn(`AI [${model}] TRONCATO (finish_reason=length) → penalizzo, passo al prossimo`);
-          break; // non ritentare lo stesso: tronca ancora
-        }
+        const map = await callModel(ref, listings);
         if (map.size === 0) {
-          recordPenalty(model, 'empty');
-          warn(`AI [${model}] risposta VUOTA → penalizzo, passo al prossimo`);
+          recordPenalty(refKey(ref), 'empty');
+          warn(`AI [${label}] risposta VUOTA → penalizzo, passo al prossimo`);
           break;
         }
         return map;
       } catch (e) {
-        const status = (e as { status?: number })?.status;
-        if (status === 429) {
-          recordPenalty(model, '429');
-          warn(`AI [${model}] 429 (throttle upstream) → penalizzo, passo al prossimo`);
-          break; // non martellare un modello throttlato
+        if (e instanceof InvalidKeyError) {
+          markKeyInvalid(ref.provider);
+          warn(`AI [${label}] key rifiutata → salto il provider`);
+          break;
+        }
+        const reason = classifyFailure(e);
+        if (reason) {
+          recordPenalty(refKey(ref), reason);
+          warn(`AI [${label}] ${reason} → penalizzo, passo al prossimo`);
+          break; // non ritentare chi ha già fallito per una ragione strutturale o di throttle
         }
         const retry = isRetryable(e) && attempt < MAX_ATTEMPTS;
-        warn(`AI [${model}] tentativo ${attempt}/${MAX_ATTEMPTS} fallito: ${(e as Error).message}` + (retry ? ' → ritento' : ''));
+        warn(`AI [${label}] tentativo ${attempt}/${MAX_ATTEMPTS} fallito: ${(e as Error).message}` + (retry ? ' → ritento' : ''));
         if (!retry) break;
         await delay(600 * attempt);
       }
@@ -239,15 +220,17 @@ type LogFn = (msg: string) => void;
 export async function scoreBatch(listings: Listing[], log: LogFn = () => {}): Promise<Map<string, ScoreResult>> {
   if (!listings.length || !configured()) return new Map();
   clearPenalties(); // le penalità empiriche sono per-task: reset a inizio run
-  const candidates = reasoningCandidates();
   const out = new Map<string, ScoreResult>();
   const nChunks = Math.ceil(listings.length / CHUNK);
   for (let i = 0; i < listings.length; i += CHUNK) {
     const idx = Math.floor(i / CHUNK) + 1;
     const chunk = listings.slice(i, i + CHUNK);
     // Catena ricalcolata per chunk: riflette le penalità accumulate (health via cache, no rifetch).
-    const chain = await pickModelsForTask(candidates);
-    log(`[ai] valuto gruppo ${idx}/${nChunks} (${chunk.length} annunci) — modello ${chain[0] ?? '?'}`);
+    const chain = await buildChainForTask('reasoning');
+    const head = chain[0];
+    log(
+      `[ai] valuto gruppo ${idx}/${nChunks} (${chunk.length} annunci) — modello ${head ? `${head.provider}/${head.model}` : '?'}`,
+    );
     const m = await callChunk(chunk, chain, log);
     log(`[ai] gruppo ${idx}/${nChunks}: ${m.size}/${chunk.length} valutati`);
     for (const [k, v] of m) out.set(k, v);
