@@ -53,7 +53,7 @@ visit?" verdict** — plus a dashboard to track what you already contacted or di
   per-channel isolation with incremental saves, store mutex.
 - **Local web dashboard** — React + Tailwind: filters, live run log over SSE, favourite / contacted /
   discarded, in-app config editor, one-click archive cleanup.
-- **Tested** — 101 tests (`node:test`), `tsc --strict` on both the server and the UI, CI on Node 20 and 22.
+- **Tested** — 102 tests (`node:test`), `tsc --strict` on both the server and the UI, CI on Node 20 and 22.
 
 ### 📡 Channels
 
@@ -90,7 +90,8 @@ Node 20+. For the browser channels: `npx playwright install chromium`.
 Prefer not to install anything? Grab `HouseFinder-windows.zip` from the
 [latest release](https://github.com/DiegoRiccardi1234/house-finder/releases/latest), unzip, run
 `HouseFinder.bat`. The bundle ships Node but **not** the Playwright browsers (~400 MB): without them
-the app runs in e-mail-only mode, and `install-browsers.bat` enables the rest.
+the app runs in e-mail-only mode — the dashboard shows the scraper channels as unavailable — and
+`install-browsers.bat` enables the rest.
 
 ### 🔑 Configuration
 
@@ -152,7 +153,7 @@ npm run try:email           # read unread mail, print extracted listings (non-de
 npm run try:source -- <portal> <profile>   # single scraper, headed
 npm run debug:page -- <portal> <profile>   # dump HTML to tune selectors
 npm run monitor             # CLI run (e-mail; + scrapers with ENABLE_SCRAPERS=1)
-npm test                    # 101 tests
+npm test                    # 102 tests
 npm run typecheck           # tsc --noEmit (and: npm --prefix ui run typecheck)
 ```
 
@@ -201,7 +202,7 @@ più una dashboard per tenere traccia di chi hai già contattato o scartato.
   isolati con save incrementale, mutex sullo store.
 - **Dashboard web locale** — React + Tailwind: filtri, log del run dal vivo via SSE, preferiti /
   contattati / scartati, editor della config, pulizia dell'archivio in un click.
-- **Testato** — 101 test (`node:test`), `tsc --strict` su server e UI, CI su Node 20 e 22.
+- **Testato** — 102 test (`node:test`), `tsc --strict` su server e UI, CI su Node 20 e 22.
 
 ### 📡 Canali
 
@@ -238,7 +239,8 @@ Serve Node 20+. Per i canali browser: `npx playwright install chromium`.
 Non vuoi installare niente? Scarica `HouseFinder-windows.zip` dalla
 [release più recente](https://github.com/DiegoRiccardi1234/house-finder/releases/latest), estrai e
 lancia `HouseFinder.bat`. Il bundle include Node ma **non** i browser Playwright (~400 MB): senza
-quelli l'app parte in modalità solo-email, e `install-browsers.bat` abilita il resto.
+quelli l'app parte in modalità solo-email — la dashboard mostra i canali scraper come non disponibili
+— e `install-browsers.bat` abilita il resto.
 
 ### 🔑 Configurazione
 
@@ -302,7 +304,7 @@ npm run try:email           # legge le mail non lette e stampa gli annunci estra
 npm run try:source -- <portale> <profilo>   # un singolo scraper, headed
 npm run debug:page -- <portale> <profilo>   # dump HTML per tarare i selettori
 npm run monitor             # run da CLI (email; + scraper con ENABLE_SCRAPERS=1)
-npm test                    # 101 test
+npm test                    # 102 test
 npm run typecheck           # tsc --noEmit (e: npm --prefix ui run typecheck)
 ```
 

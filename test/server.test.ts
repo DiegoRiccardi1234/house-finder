@@ -46,6 +46,27 @@ test('GET /api/listings: tutti + filtri + sort', async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test('GET /api/meta: i canali scraper seguono la presenza dei browser', async () => {
+  const { dir, app } = await setup();
+  const res = await request(app).get('/api/meta');
+  assert.equal(res.status, 200);
+  assert.equal(typeof res.body.browsersInstalled, 'boolean');
+
+  // Senza binari Playwright gli scraper fallirebbero al primo click: `available` deve dirlo,
+  // e quando è false serve una `reason` che spieghi come rimediare.
+  for (const id of ['subito', 'immobiliare', 'idealista']) {
+    const ch = res.body.channels.find((c: { id: string }) => c.id === id);
+    assert.equal(ch.available, res.body.browsersInstalled, `canale ${id}`);
+    if (!ch.available) assert.match(ch.reason, /browser non installato/);
+  }
+  // Facebook richiede ENTRAMBI: browser e sessione salvata (che sulla macchina di sviluppo può
+  // esistere davvero, quindi si verifica la relazione, non un valore fisso).
+  const fb = res.body.channels.find((c: { id: string }) => c.id === 'facebook');
+  assert.equal(fb.available, res.body.browsersInstalled && res.body.fbSessionExists);
+  if (!fb.available) assert.ok(fb.reason.length > 0);
+  await rm(dir, { recursive: true, force: true });
+});
+
 test('PATCH status: persiste, 404, 400', async () => {
   const { dir, app } = await setup();
   const ok = await request(app).patch('/api/listings/immobiliare:1/status').send({ status: 'favorite' });

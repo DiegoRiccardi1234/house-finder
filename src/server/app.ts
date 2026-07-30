@@ -10,6 +10,7 @@ import { isResidential } from '../core/match.js';
 import { looksLikeListing, isShortTerm } from '../sources/fb-parse.js';
 import { FB_STATE_PATH } from '../config/facebook.js';
 import { configReadPath, localConfigPath } from '../config/paths.js';
+import { chromium } from 'playwright';
 import { RunManager, RunBusyError } from './runManager.js';
 import { SearchesSchema, FbConfigSchema, StatusSchema, RunBodySchema } from './schemas.js';
 
@@ -102,6 +103,18 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
     return fallback;
   }
 }
+/**
+ * I binari dei browser NON sono nel bundle di release (~400 MB) e possono mancare anche dopo un
+ * `npm install`. `executablePath()` restituisce il path calcolato anche quando il file non c'è.
+ */
+function browsersInstalled(): boolean {
+  try {
+    return existsSync(chromium.executablePath());
+  } catch {
+    return false;
+  }
+}
+
 async function writeFileSafe(path: string, content: string): Promise<void> {
   await writeFileAtomic(path, content); // tmp+rename+.bak: niente file di config troncati
 }
@@ -123,16 +136,25 @@ export function createApp(deps: AppDeps): Express {
   app.get('/api/meta', (_req, res) => {
     const fbSessionExists = existsSync(FB_STATE_PATH);
     const imap = imapConfigured();
+    const browser = browsersInstalled();
+    // Senza browser i canali scraper fallirebbero al primo click: meglio dirlo qui che in uno stack trace.
+    const needsBrowser = browser ? '' : 'browser non installato (npx playwright install chromium)';
     res.json({
       aiConfigured: aiConfigured(),
       imapConfigured: imap,
       fbSessionExists,
+      browsersInstalled: browser,
       channels: [
         { id: 'email', label: 'Portali (email)', available: imap, reason: imap ? '' : 'IMAP non configurato' },
-        { id: 'subito', label: 'Subito', available: true, reason: '' },
-        { id: 'immobiliare', label: 'Immobiliare (diretto)', available: true, reason: '' },
-        { id: 'idealista', label: 'Idealista (diretto)', available: true, reason: '' },
-        { id: 'facebook', label: 'Facebook', available: fbSessionExists, reason: fbSessionExists ? '' : 'sessione FB assente' },
+        { id: 'subito', label: 'Subito', available: browser, reason: needsBrowser },
+        { id: 'immobiliare', label: 'Immobiliare (diretto)', available: browser, reason: needsBrowser },
+        { id: 'idealista', label: 'Idealista (diretto)', available: browser, reason: needsBrowser },
+        {
+          id: 'facebook',
+          label: 'Facebook',
+          available: fbSessionExists && browser,
+          reason: !browser ? needsBrowser : fbSessionExists ? '' : 'sessione FB assente',
+        },
       ],
     });
   });
