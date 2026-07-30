@@ -1,0 +1,6 @@
+[
+  { "id": "torino-bilocale",  "city": "torino", "label": "Torino · bilocale",             "maxPrice": 750,  "minRooms": 2, "maxRooms": 2 },
+  { "id": "torino-condivisa", "city": "torino", "label": "Torino · appartamento condiviso", "maxPrice": 1200, "minRooms": 3 },
+  { "id": "bari-bilocale",    "city": "bari",   "label": "Bari · bilocale",               "maxPrice": 600,  "minRooms": 2, "maxRooms": 2 },
+  { "id": "bari-condivisa",   "city": "bari",   "label": "Bari · appartamento condiviso",  "maxPrice": 900,  "minRooms": 3 }
+]

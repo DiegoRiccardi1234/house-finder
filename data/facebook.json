@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "ESEMPIO versionato. Sostituisci gli URL con i gruppi che hai davvero joinato:",
+    "apri il gruppo su Facebook e copia l'indirizzo dalla barra del browser",
+    "(sia /groups/<id>/ sia /groups/<slug>/ vanno bene).",
+    "I gruppi privati mostrano i post solo ai membri: joina PRIMA di lanciare lo scraper.",
+    "La tua lista reale puoi tenerla in data/local/facebook.json (gitignorato): se esiste, vince."
+  ],
+  "groups": [
+    { "name": "Affitti privati Torino (esempio)",  "city": "torino", "url": "https://www.facebook.com/groups/000000000000000/" },
+    { "name": "Stanze e case studenti Torino (esempio)", "city": "torino", "url": "https://www.facebook.com/groups/esempio-gruppo-torino/" },
+    { "name": "Affitti privati Bari (esempio)",    "city": "bari",   "url": "https://www.facebook.com/groups/000000000000001/" },
+    { "name": "Stanze e case studenti Bari (esempio)",   "city": "bari",   "url": "https://www.facebook.com/groups/esempio-gruppo-bari/" }
+  ],
+  "market": [
+    { "name": "Marketplace affitti (conferma l'URL da loggato)", "url": "https://www.facebook.com/marketplace/category/propertyrentals?sortBy=creation_time_descend&exact=false" }
+  ]
+}

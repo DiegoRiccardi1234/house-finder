@@ -1,0 +1,530 @@
+{
+  "immobiliare:demo-1": {
+    "key": "immobiliare:demo-1",
+    "listing": {
+      "source": "immobiliare",
+      "id": "demo-1",
+      "url": "https://www.example.com/annunci/demo-1/",
+      "title": "Bilocale arredato in Crocetta, ottimo stato",
+      "price": 690,
+      "rooms": 2,
+      "sizeSqm": 55,
+      "zone": "Crocetta",
+      "thumb": null,
+      "desc": "Bilocale completamente arredato al terzo piano con ascensore. Doppia esposizione, riscaldamento centralizzato con valvole, classe energetica D. Contratto 4+4, disponibile da settembre. No agenzie."
+    },
+    "ai": {
+      "score": 88,
+      "verdict": "Ottimo compromesso: zona in whitelist, arredato, prezzo sotto il tetto.",
+      "pros": ["Zona Crocetta", "Arredato e in ordine", "Ascensore", "Sotto il tetto di 30 €"],
+      "cons": ["Riscaldamento centralizzato: spese variabili"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Torino", "zona": "Crocetta", "tipologia": "bilocale", "prezzo": 690, "spese": "60 €/mese condominio",
+      "m2": 55, "locali": 2, "bagni": 1, "piano": "3", "ascensore": true, "arredato": "sì",
+      "classe_energetica": "D", "riscaldamento": "centralizzato con valvole", "aria_condizionata": false,
+      "disponibile_da": "settembre", "tipo_contratto": "4+4", "vincoli_inquilino": ["solo referenziati"],
+      "contatto": "privato", "riassunto": "Bilocale arredato in Crocetta, terzo piano con ascensore."
+    },
+    "visionSummary": "Soggiorno luminoso con divano e tavolo, cucina a vista in buono stato.",
+    "photos": [],
+    "channel": "email",
+    "firstSeen": "2026-07-24T08:12:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "favorite",
+    "notified": true
+  },
+  "idealista:demo-2": {
+    "key": "idealista:demo-2",
+    "listing": {
+      "source": "idealista",
+      "id": "demo-2",
+      "url": "https://www.example.com/immobile/demo-2/",
+      "title": "Trilocale ristrutturato, Cit Turin",
+      "price": 1050,
+      "rooms": 3,
+      "sizeSqm": 85,
+      "zone": "Cit Turin",
+      "thumb": null,
+      "desc": "Trilocale ristrutturato nel 2024, due camere matrimoniali, cucina abitabile arredata. Ideale per condivisione. Classe energetica C, aria condizionata in soggiorno. Ascensore, portineria."
+    },
+    "ai": {
+      "score": 82,
+      "verdict": "Buono per condivisione: due camere vere, zona centrale, appena ristrutturato.",
+      "pros": ["Due matrimoniali", "Ristrutturato 2024", "Aria condizionata", "Zona Cit Turin"],
+      "cons": ["Vicino al tetto per la condivisa", "Spese di portineria"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Torino", "zona": "Cit Turin", "tipologia": "trilocale", "prezzo": 1050, "spese": "portineria inclusa",
+      "m2": 85, "locali": 3, "bagni": 2, "piano": "5", "ascensore": true, "arredato": "sì",
+      "classe_energetica": "C", "riscaldamento": "autonomo", "aria_condizionata": true,
+      "disponibile_da": "subito", "tipo_contratto": "4+4", "vincoli_inquilino": [],
+      "contatto": "agenzia", "riassunto": "Trilocale ristrutturato adatto a due persone."
+    },
+    "visionSummary": "Cucina abitabile nuova, camera con armadio a muro, bagno con doccia.",
+    "photos": [],
+    "channel": "email",
+    "firstSeen": "2026-07-26T09:05:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "contacted",
+    "notified": true
+  },
+  "subito:demo-3": {
+    "key": "subito:demo-3",
+    "listing": {
+      "source": "subito",
+      "id": "demo-3",
+      "url": "https://www.example.com/appartamenti/demo-3.htm",
+      "title": "Monolocale arredato zona San Salvario",
+      "price": 620,
+      "rooms": 1,
+      "sizeSqm": 38,
+      "zone": "Torino",
+      "thumb": null,
+      "desc": "Monolocale arredato, secondo piano senza ascensore. Angolo cottura, bagno con doccia. Riscaldamento autonomo. Zona San Salvario a due passi dalla metro. No spese di agenzia."
+    },
+    "ai": {
+      "score": 64,
+      "verdict": "Zona e prezzo ok, ma è un monolocale: sotto i 2 locali richiesti.",
+      "pros": ["Vicino alla metro", "Autonomo", "Nessuna spesa di agenzia"],
+      "cons": ["Monolocale, non bilocale", "Secondo piano senza ascensore"],
+      "worthVisit": false
+    },
+    "fields": {
+      "citta": "Torino", "zona": "San Salvario", "tipologia": "monolocale", "prezzo": 620, "spese": null,
+      "m2": 38, "locali": 1, "bagni": 1, "piano": "2", "ascensore": false, "arredato": "sì",
+      "classe_energetica": "E", "riscaldamento": "autonomo", "aria_condizionata": null,
+      "disponibile_da": "subito", "tipo_contratto": null, "vincoli_inquilino": [],
+      "contatto": "privato", "riassunto": "Monolocale arredato vicino alla metro."
+    },
+    "visionSummary": null,
+    "photos": [],
+    "channel": "subito",
+    "firstSeen": "2026-07-27T18:22:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "new",
+    "notified": true
+  },
+  "subito:demo-4": {
+    "key": "subito:demo-4",
+    "listing": {
+      "source": "subito",
+      "id": "demo-4",
+      "url": "https://www.example.com/appartamenti/demo-4.htm",
+      "title": "Appartamento 3 locali Barriera di Milano",
+      "price": 550,
+      "rooms": 3,
+      "sizeSqm": 90,
+      "zone": "Torino",
+      "thumb": null,
+      "desc": "Tre locali non arredato, quarto piano senza ascensore. Ristrutturazione da rivedere. Riscaldamento centralizzato."
+    },
+    "ai": {
+      "score": 18,
+      "verdict": "Fuori zona e non arredato: due no-go su due.",
+      "pros": ["Prezzo basso", "Metratura ampia"],
+      "cons": ["Zona in blacklist", "Non arredato", "Quarto piano senza ascensore"],
+      "worthVisit": false
+    },
+    "fields": {
+      "citta": "Torino", "zona": "Barriera di Milano", "tipologia": "trilocale", "prezzo": 550, "spese": null,
+      "m2": 90, "locali": 3, "bagni": 1, "piano": "4", "ascensore": false, "arredato": "no",
+      "classe_energetica": "G", "riscaldamento": "centralizzato", "aria_condizionata": false,
+      "disponibile_da": "subito", "tipo_contratto": null, "vincoli_inquilino": [],
+      "contatto": "agenzia", "riassunto": "Tre locali non arredato in zona periferica."
+    },
+    "visionSummary": null,
+    "photos": [],
+    "channel": "subito",
+    "firstSeen": "2026-07-25T11:40:00.000Z",
+    "lastSeen": "2026-07-28T19:10:00.000Z",
+    "status": "dismissed",
+    "notified": true
+  },
+  "immobiliare:demo-5": {
+    "key": "immobiliare:demo-5",
+    "listing": {
+      "source": "immobiliare",
+      "id": "demo-5",
+      "url": "https://www.example.com/annunci/demo-5/",
+      "title": "Bilocale arredato Cenisia, ultimo piano",
+      "price": 720,
+      "rooms": 2,
+      "sizeSqm": 60,
+      "zone": "Cenisia",
+      "thumb": null,
+      "desc": "Bilocale all'ultimo piano con terrazzino abitabile. Arredato, climatizzato, classe B. Palazzo con ascensore. Contratto transitorio 18 mesi."
+    },
+    "ai": {
+      "score": 79,
+      "verdict": "Casa ottima ma contratto transitorio e prezzo appena sopra il tetto.",
+      "pros": ["Terrazzino", "Classe B", "Climatizzato", "Zona in whitelist"],
+      "cons": ["Transitorio 18 mesi", "30 € sopra il tetto"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Torino", "zona": "Cenisia", "tipologia": "bilocale", "prezzo": 720, "spese": "40 €/mese",
+      "m2": 60, "locali": 2, "bagni": 1, "piano": "ultimo", "ascensore": true, "arredato": "sì",
+      "classe_energetica": "B", "riscaldamento": "autonomo", "aria_condizionata": true,
+      "disponibile_da": "1 settembre", "tipo_contratto": "transitorio 18 mesi", "vincoli_inquilino": ["no animali"],
+      "contatto": "agenzia", "riassunto": "Bilocale con terrazzino all'ultimo piano."
+    },
+    "visionSummary": "Terrazzino con tavolino, soggiorno con divano angolare, finestre grandi.",
+    "photos": [],
+    "channel": "email",
+    "firstSeen": "2026-07-28T06:30:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "new",
+    "notified": true
+  },
+  "idealista:demo-6": {
+    "key": "idealista:demo-6",
+    "listing": {
+      "source": "idealista",
+      "id": "demo-6",
+      "url": "https://www.example.com/immobile/demo-6/",
+      "title": "Bilocale in Carrassi, ristrutturato",
+      "price": 560,
+      "rooms": 2,
+      "sizeSqm": 62,
+      "zone": "Carrassi",
+      "thumb": null,
+      "desc": "Bilocale ristrutturato e arredato a nuovo, secondo piano con ascensore. Aria condizionata, classe energetica C. Zona Carrassi, vicino ai servizi."
+    },
+    "ai": {
+      "score": 91,
+      "verdict": "Il migliore su Bari: zona core, arredato a nuovo, sotto il tetto.",
+      "pros": ["Zona Carrassi", "Ristrutturato", "Aria condizionata", "40 € sotto il tetto"],
+      "cons": ["Nessuna criticità rilevata"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Bari", "zona": "Carrassi", "tipologia": "bilocale", "prezzo": 560, "spese": "35 €/mese",
+      "m2": 62, "locali": 2, "bagni": 1, "piano": "2", "ascensore": true, "arredato": "sì",
+      "classe_energetica": "C", "riscaldamento": "autonomo", "aria_condizionata": true,
+      "disponibile_da": "subito", "tipo_contratto": "4+4", "vincoli_inquilino": [],
+      "contatto": "privato", "riassunto": "Bilocale ristrutturato in Carrassi."
+    },
+    "visionSummary": "Ambienti chiari, cucina lineare nuova, camera matrimoniale con balcone.",
+    "photos": [],
+    "channel": "email",
+    "firstSeen": "2026-07-23T15:02:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "favorite",
+    "notified": true
+  },
+  "idealista:demo-7": {
+    "key": "idealista:demo-7",
+    "listing": {
+      "source": "idealista",
+      "id": "demo-7",
+      "url": "https://www.example.com/immobile/demo-7/",
+      "title": "Quadrilocale in Murat, per condivisione",
+      "price": 880,
+      "rooms": 4,
+      "sizeSqm": 110,
+      "zone": "Murat",
+      "thumb": null,
+      "desc": "Ampio quadrilocale nel quartiere Murat, tre camere, doppi servizi. Arredato parzialmente. Palazzo d'epoca senza ascensore, terzo piano."
+    },
+    "ai": {
+      "score": 71,
+      "verdict": "Ottimo per condividere, ma arredamento parziale e niente ascensore.",
+      "pros": ["Tre camere", "Doppi servizi", "Zona Murat", "Sotto il tetto"],
+      "cons": ["Arredato solo in parte", "Terzo piano senza ascensore"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Bari", "zona": "Murat", "tipologia": "quadrilocale", "prezzo": 880, "spese": "70 €/mese",
+      "m2": 110, "locali": 4, "bagni": 2, "piano": "3", "ascensore": false, "arredato": "parziale",
+      "classe_energetica": "E", "riscaldamento": "autonomo", "aria_condizionata": null,
+      "disponibile_da": "ottobre", "tipo_contratto": "4+4", "vincoli_inquilino": ["solo referenziati"],
+      "contatto": "agenzia", "riassunto": "Quadrilocale d'epoca adatto alla condivisione."
+    },
+    "visionSummary": null,
+    "photos": [],
+    "channel": "email",
+    "firstSeen": "2026-07-22T10:15:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "new",
+    "notified": true
+  },
+  "fb-group:demo-8": {
+    "key": "fb-group:demo-8",
+    "listing": {
+      "source": "fb-group",
+      "id": "demo-8",
+      "url": "https://www.example.com/groups/000000000000000/posts/demo-8/",
+      "title": "Affitto bilocale arredato zona Santa Rita",
+      "price": 700,
+      "rooms": 2,
+      "sizeSqm": null,
+      "zone": null,
+      "thumb": null,
+      "desc": "[Gruppo affitti · torino] Affitto bilocale arredato in zona Santa Rita, quarto piano con ascensore, riscaldamento autonomo. Solo referenziati, no agenzie. Scrivetemi in privato per la visita."
+    },
+    "ai": {
+      "score": 76,
+      "verdict": "Post di privato credibile, zona ok, prezzo esattamente al tetto.",
+      "pros": ["Privato, no agenzia", "Arredato", "Ascensore"],
+      "cons": ["Prezzo al limite", "Metratura non indicata"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Torino", "zona": "Santa Rita", "tipologia": "bilocale", "prezzo": 700, "spese": null,
+      "m2": null, "locali": 2, "bagni": 1, "piano": "4", "ascensore": true, "arredato": "sì",
+      "classe_energetica": null, "riscaldamento": "autonomo", "aria_condizionata": null,
+      "disponibile_da": null, "tipo_contratto": null, "vincoli_inquilino": ["solo referenziati"],
+      "contatto": "privato", "riassunto": "Bilocale arredato da privato in Santa Rita."
+    },
+    "visionSummary": null,
+    "photos": [],
+    "channel": "fb-group",
+    "firstSeen": "2026-07-28T20:45:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "new",
+    "notified": true
+  },
+  "fb-group:demo-9": {
+    "key": "fb-group:demo-9",
+    "listing": {
+      "source": "fb-group",
+      "id": "demo-9",
+      "url": "https://www.example.com/groups/000000000000001/posts/demo-9/",
+      "title": "Stanza singola in appartamento condiviso",
+      "price": 320,
+      "rooms": 1,
+      "sizeSqm": null,
+      "zone": null,
+      "thumb": null,
+      "desc": "[Gruppo studenti · bari] Ho una stanza singola libera da settembre in appartamento con altri due studenti, zona San Pasquale. Spese incluse tranne la luce."
+    },
+    "ai": {
+      "score": 45,
+      "verdict": "Stanza singola: non è la tipologia cercata, ma zona e prezzo sono buoni.",
+      "pros": ["Zona San Pasquale", "Spese quasi tutte incluse"],
+      "cons": ["È una stanza, non un appartamento", "Coinquilini già presenti"],
+      "worthVisit": false
+    },
+    "fields": {
+      "citta": "Bari", "zona": "San Pasquale", "tipologia": "stanza singola", "prezzo": 320, "spese": "incluse tranne luce",
+      "m2": null, "locali": 1, "bagni": null, "piano": null, "ascensore": null, "arredato": "sì",
+      "classe_energetica": null, "riscaldamento": null, "aria_condizionata": null,
+      "disponibile_da": "settembre", "tipo_contratto": "studenti", "vincoli_inquilino": ["solo studenti"],
+      "contatto": "privato", "riassunto": "Stanza singola in appartamento condiviso."
+    },
+    "visionSummary": null,
+    "photos": [],
+    "channel": "fb-group",
+    "firstSeen": "2026-07-27T21:30:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "dismissed",
+    "notified": true
+  },
+  "fb-marketplace:demo-10": {
+    "key": "fb-marketplace:demo-10",
+    "listing": {
+      "source": "fb-marketplace",
+      "id": "demo-10",
+      "url": "https://www.example.com/marketplace/item/demo-10/",
+      "title": "Bilocale arredato Parella",
+      "price": 660,
+      "rooms": 2,
+      "sizeSqm": 52,
+      "zone": "Parella",
+      "thumb": null,
+      "desc": "Bilocale arredato in zona Parella, primo piano, riscaldamento autonomo. Cucina abitabile, balcone. Libero da subito."
+    },
+    "ai": {
+      "score": 74,
+      "verdict": "Solido: zona ok, sotto il tetto, nessuna criticità evidente.",
+      "pros": ["Sotto il tetto", "Balcone", "Autonomo"],
+      "cons": ["Primo piano su strada", "Foto poche"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Torino", "zona": "Parella", "tipologia": "bilocale", "prezzo": 660, "spese": "30 €/mese",
+      "m2": 52, "locali": 2, "bagni": 1, "piano": "1", "ascensore": false, "arredato": "sì",
+      "classe_energetica": "D", "riscaldamento": "autonomo", "aria_condizionata": false,
+      "disponibile_da": "subito", "tipo_contratto": "4+4", "vincoli_inquilino": [],
+      "contatto": "privato", "riassunto": "Bilocale arredato con balcone in Parella."
+    },
+    "visionSummary": "Cucina abitabile con tavolo, balcone affacciato sul cortile.",
+    "photos": [],
+    "channel": "fb-marketplace",
+    "firstSeen": "2026-07-29T06:10:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "new",
+    "notified": false
+  },
+  "fb-marketplace:demo-11": {
+    "key": "fb-marketplace:demo-11",
+    "listing": {
+      "source": "fb-marketplace",
+      "id": "demo-11",
+      "url": "https://www.example.com/marketplace/item/demo-11/",
+      "title": "Appartamento per studenti Poggiofranco",
+      "price": 750,
+      "rooms": 3,
+      "sizeSqm": 95,
+      "zone": "Poggiofranco",
+      "thumb": null,
+      "desc": "Appartamento di tre locali arredato, adatto a studenti o lavoratori. Zona Poggiofranco, ascensore, aria condizionata in tutte le stanze."
+    },
+    "ai": {
+      "score": 84,
+      "verdict": "Buona opzione per la condivisa a Bari: arredato, climatizzato, sotto il tetto.",
+      "pros": ["Tre locali arredati", "Aria condizionata ovunque", "Ascensore"],
+      "cons": ["Zona meno centrale"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Bari", "zona": "Poggiofranco", "tipologia": "trilocale", "prezzo": 750, "spese": "50 €/mese",
+      "m2": 95, "locali": 3, "bagni": 2, "piano": "6", "ascensore": true, "arredato": "sì",
+      "classe_energetica": "C", "riscaldamento": "autonomo", "aria_condizionata": true,
+      "disponibile_da": "settembre", "tipo_contratto": "studenti", "vincoli_inquilino": [],
+      "contatto": "privato", "riassunto": "Trilocale arredato e climatizzato in Poggiofranco."
+    },
+    "visionSummary": null,
+    "photos": [],
+    "channel": "fb-marketplace",
+    "firstSeen": "2026-07-26T17:55:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "favorite",
+    "notified": true
+  },
+  "subito:demo-12": {
+    "key": "subito:demo-12",
+    "listing": {
+      "source": "subito",
+      "id": "demo-12",
+      "url": "https://www.example.com/appartamenti/demo-12.htm",
+      "title": "Bilocale arredato Madonnella",
+      "price": 520,
+      "rooms": 2,
+      "sizeSqm": 50,
+      "zone": "Bari",
+      "thumb": null,
+      "desc": "Bilocale arredato in zona Madonnella, terzo piano con ascensore. Riscaldamento autonomo, doppi vetri. Disponibile da agosto."
+    },
+    "ai": {
+      "score": 80,
+      "verdict": "Sotto il tetto e in whitelist: da vedere.",
+      "pros": ["80 € sotto il tetto", "Ascensore", "Doppi vetri"],
+      "cons": ["Metratura contenuta"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Bari", "zona": "Madonnella", "tipologia": "bilocale", "prezzo": 520, "spese": "25 €/mese",
+      "m2": 50, "locali": 2, "bagni": 1, "piano": "3", "ascensore": true, "arredato": "sì",
+      "classe_energetica": "D", "riscaldamento": "autonomo", "aria_condizionata": false,
+      "disponibile_da": "agosto", "tipo_contratto": "4+4", "vincoli_inquilino": [],
+      "contatto": "privato", "riassunto": "Bilocale arredato in Madonnella."
+    },
+    "visionSummary": null,
+    "photos": [],
+    "channel": "subito",
+    "firstSeen": "2026-07-25T08:48:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "contacted",
+    "notified": true
+  },
+  "immobiliare:demo-13": {
+    "key": "immobiliare:demo-13",
+    "listing": {
+      "source": "immobiliare",
+      "id": "demo-13",
+      "url": "https://www.example.com/annunci/demo-13/",
+      "title": "Bilocale centro storico, ristrutturato",
+      "price": 780,
+      "rooms": 2,
+      "sizeSqm": 48,
+      "zone": "Centro",
+      "thumb": null,
+      "desc": "Bilocale ristrutturato in pieno centro storico, arredato con gusto. Quarto piano con ascensore, riscaldamento autonomo."
+    },
+    "ai": {
+      "score": 58,
+      "verdict": "Bella casa, ma il centro sopra il tetto vale solo se è un affare: qui non lo è.",
+      "pros": ["Ristrutturato", "Posizione centrale", "Ascensore"],
+      "cons": ["Sopra il tetto", "Regola centro non soddisfatta", "48 m² per il prezzo"],
+      "worthVisit": false
+    },
+    "fields": {
+      "citta": "Torino", "zona": "Centro", "tipologia": "bilocale", "prezzo": 780, "spese": "80 €/mese",
+      "m2": 48, "locali": 2, "bagni": 1, "piano": "4", "ascensore": true, "arredato": "sì",
+      "classe_energetica": "C", "riscaldamento": "autonomo", "aria_condizionata": true,
+      "disponibile_da": "subito", "tipo_contratto": "4+4", "vincoli_inquilino": ["no animali"],
+      "contatto": "agenzia", "riassunto": "Bilocale ristrutturato in centro, sopra budget."
+    },
+    "visionSummary": "Interni curati, travi a vista, cucina moderna compatta.",
+    "photos": [],
+    "channel": "email",
+    "firstSeen": "2026-07-21T12:00:00.000Z",
+    "lastSeen": "2026-07-28T09:20:00.000Z",
+    "status": "dismissed",
+    "notified": true
+  },
+  "idealista:demo-14": {
+    "key": "idealista:demo-14",
+    "listing": {
+      "source": "idealista",
+      "id": "demo-14",
+      "url": "https://www.example.com/immobile/demo-14/",
+      "title": "Trilocale San Secondo, primo ingresso",
+      "price": 1150,
+      "rooms": 3,
+      "sizeSqm": 100,
+      "zone": "San Secondo",
+      "thumb": null,
+      "desc": "Trilocale in zona San Secondo, mai affittato dopo la ristrutturazione. Due camere doppie, cucina separata, due bagni. Classe A."
+    },
+    "ai": {
+      "score": 86,
+      "verdict": "Molto buono per la condivisa: nuovo, doppi servizi, dentro il tetto.",
+      "pros": ["Classe A", "Due bagni", "Due camere doppie", "Zona in whitelist"],
+      "cons": ["Vicino al tetto della condivisa"],
+      "worthVisit": true
+    },
+    "fields": {
+      "citta": "Torino", "zona": "San Secondo", "tipologia": "trilocale", "prezzo": 1150, "spese": "90 €/mese",
+      "m2": 100, "locali": 3, "bagni": 2, "piano": "2", "ascensore": true, "arredato": "sì",
+      "classe_energetica": "A", "riscaldamento": "autonomo", "aria_condizionata": true,
+      "disponibile_da": "1 ottobre", "tipo_contratto": "4+4", "vincoli_inquilino": [],
+      "contatto": "agenzia", "riassunto": "Trilocale nuovo con doppi servizi in San Secondo."
+    },
+    "visionSummary": "Parquet chiaro, cucina separata attrezzata, bagno con vasca.",
+    "photos": [],
+    "channel": "email",
+    "firstSeen": "2026-07-29T05:35:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "new",
+    "notified": false
+  },
+  "subito:demo-15": {
+    "key": "subito:demo-15",
+    "listing": {
+      "source": "subito",
+      "id": "demo-15",
+      "url": "https://www.example.com/appartamenti/demo-15.htm",
+      "title": "Bilocale luminoso zona Borgo San Paolo",
+      "price": 640,
+      "rooms": 2,
+      "sizeSqm": 58,
+      "zone": "Torino",
+      "thumb": null,
+      "desc": "Bilocale luminoso in Borgo San Paolo, arredato, secondo piano con ascensore. Balcone sul cortile interno, riscaldamento semiautonomo."
+    },
+    "ai": null,
+    "fields": null,
+    "visionSummary": null,
+    "photos": [],
+    "channel": "subito",
+    "firstSeen": "2026-07-29T07:38:00.000Z",
+    "lastSeen": "2026-07-29T07:40:00.000Z",
+    "status": "new",
+    "notified": false
+  }
+}
