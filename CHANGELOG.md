@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-30
+
+### Fixed
+
+- `GET /api/meta` now reports whether the Playwright browsers are actually installed, and marks the
+  Subito / Immobiliare / Idealista / Facebook channels as unavailable when they are not. Previously
+  the dashboard offered them even in the Windows bundle, which ships without the browsers, so
+  starting a run failed with a Playwright error instead of an explanation.
+
 ## [1.0.0] - 2026-07-30
 
 First public release.
@@ -34,5 +43,6 @@ First public release.
   testing without touching the real archive.
 - **CI** on Node 20 and 22 (type-check + 101 tests) and a Windows release bundle.
 
-[Unreleased]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/DiegoRiccardi1234/house-finder/releases/tag/v1.0.0
