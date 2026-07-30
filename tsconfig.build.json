@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist/stage/app",
+    "rootDir": ".",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["src", "scripts"],
+  "exclude": ["scripts/build-bundle.mjs", "test"]
+}

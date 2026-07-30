@@ -1,0 +1,68 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+jobs:
+  windows-bundle:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install deps
+        run: |
+          npm ci
+          npm ci --prefix ui
+
+      - name: Build Windows bundle
+        run: node scripts/build-bundle.mjs
+
+      - name: Extract release notes for tag
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v',''
+          $content = Get-Content CHANGELOG.md -Raw
+          $escaped = [regex]::Escape($version)
+          $pattern = "(?ms)^## \[$escaped\][^\r\n]*\r?\n(.*?)(?=\r?\n## \[|\z)"
+          $match = [regex]::Match($content, $pattern)
+          if ($match.Success) {
+            $section = $match.Groups[1].Value.Trim()
+          } else {
+            $section = "Release $tag"
+          }
+          $section | Out-File -FilePath release-notes.md -Encoding utf8
+
+      - name: Upload to release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/HouseFinder-windows.zip
+          body_path: release-notes.md
+          fail_on_unmatched_files: true
+
+      - name: Upload artifact (manual run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HouseFinder-windows
+          path: dist/HouseFinder-windows.zip
+          retention-days: 14

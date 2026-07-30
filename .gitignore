@@ -1,0 +1,36 @@
+node_modules/
+*.log
+
+# Secrets: mai versionati. Solo .env.example fa eccezione.
+.env*
+!.env.example
+
+# Runtime state: archivio annunci, sessione browser, backup atomici (.bak).
+# Contiene dati di terzi presi dagli annunci → local-first, mai versionato.
+# Eccezione: il dataset demo (dati inventati) usato per screenshot e prove.
+state/*
+!state/.gitkeep
+!state/listings.demo.json
+
+# Config personale: vince sui file pubblici in data/ (vedi src/config/paths.ts).
+data/local/
+
+# Backup/temporanei di writeFileAtomic (src/core/atomic.ts), ovunque si trovino.
+*.bak
+*.tmp
+
+# Quaderni di lavoro locali (contengono note operative e riferimenti personali).
+APPUNTI.md
+HANDOFF.md
+
+# UI (build Vite) + bundle di release
+ui/dist/
+dist/
+
+# Artefatti di debug/automazione browser
+debug/
+.playwright-mcp/
+
+# Immagini: escluse di default, tranne quelle di documentazione del README.
+*.png
+!docs/**/*.png
