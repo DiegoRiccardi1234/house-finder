@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { StoredListing, ListingStatus, ListingFields } from '../types';
 import { ScoreBadge } from './ScoreBadge';
 import { Badge } from '../ui/Badge';
@@ -33,6 +34,7 @@ function FieldChips({ f }: { f: ListingFields }) {
 
 /** Miniature Subito/FB sono hotlink-bloccate: passano dal proxy server (/api/img). Il resto diretto. */
 function imgSrc(url: string): string {
+  if (url.startsWith('/')) return url; // copia locale servita da noi (/thumbs/…)
   try {
     const h = new URL(url).hostname;
     const needsProxy = h.includes('sbito') || h.endsWith('.subito.it') || h.endsWith('.fbcdn.net');
@@ -40,6 +42,41 @@ function imgSrc(url: string): string {
   } catch {
     return url;
   }
+}
+
+/**
+ * Sorgenti da provare in ordine: prima la copia locale, poi l'URL remoto dell'annuncio.
+ * Gli URL Facebook scadono in pochi giorni e quelli Subito salvati prima del fix danno 400:
+ * senza fallback esplicito il browser mostrerebbe un riquadro rotto invece del placeholder.
+ */
+function photoSources(rec: StoredListing): string[] {
+  const raw = [rec.photos[0], rec.listing.thumb].filter((v): v is string => !!v);
+  return [...new Set(raw)].map(imgSrc);
+}
+
+function Thumb({ rec }: { rec: StoredListing }) {
+  const sources = photoSources(rec);
+  const [attempt, setAttempt] = useState(0);
+  const src = sources[attempt];
+
+  if (!src) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Kicker tone="muted">senza foto</Kicker>
+      </div>
+    );
+  }
+  return (
+    <img
+      key={src}
+      src={src}
+      alt=""
+      className="h-full w-full object-cover"
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setAttempt((n) => n + 1)}
+    />
+  );
 }
 
 const CHANNEL_LABEL: Record<string, string> = {
@@ -76,7 +113,6 @@ export function ListingCard({
 }) {
   const l = rec.listing;
   const dimmed = rec.status === 'dismissed';
-  const thumb = rec.photos[0] ?? l.thumb ?? null;
 
   return (
     <Card
@@ -84,19 +120,7 @@ export function ListingCard({
       className={cx('flex flex-col overflow-hidden', dimmed && 'opacity-55')}
     >
       <div className="relative h-40 bg-surface-3">
-        {thumb ? (
-          <img
-            src={imgSrc(thumb)}
-            alt=""
-            className="h-full w-full object-cover"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <Kicker tone="muted">senza foto</Kicker>
-          </div>
-        )}
+        <Thumb rec={rec} />
         <span className="absolute left-2 top-2">
           <Badge mono tone="neutral" className="bg-surface-hi/90 backdrop-blur">
             {CHANNEL_LABEL[rec.channel] ?? rec.channel}

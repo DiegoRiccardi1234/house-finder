@@ -1,6 +1,6 @@
 {
   "name": "house-finder",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Multi-channel rental listing monitor with AI scoring and a local web dashboard",
   "license": "MIT",
@@ -18,6 +18,8 @@
     "debug:page": "tsx scripts/debug-page.ts",
     "debug:fb": "tsx scripts/debug-fb.ts",
     "probe:next": "tsx scripts/probe-next.ts",
+    "fix:thumbs": "tsx scripts/repair-thumbs.ts",
+    "docs:shots": "tsx scripts/shoot-docs.ts",
     "fb:login": "tsx scripts/fb-login.ts",
     "fb:from-brave": "tsx scripts/fb-from-brave.ts",
     "fb:run": "tsx scripts/fb-run.ts",
@@ -27,7 +29,7 @@
     "ui:build": "npm --prefix ui run build",
     "start": "npm run ui:build && npm run serve",
     "build:bundle": "node scripts/build-bundle.mjs",
-    "test": "node --import tsx --test test/match.test.ts test/email.test.ts test/facebook.test.ts test/store.test.ts test/pipeline.test.ts test/server.test.ts test/idealista.test.ts test/desc.test.ts test/endpoint-health.test.ts test/subito.test.ts test/immobiliare.test.ts test/score.test.ts test/model-select.test.ts test/config-local.test.ts test/providers.test.ts test/provider-adapters.test.ts test/failover.test.ts test/penalties.test.ts test/stats.test.ts test/ai-api.test.ts",
+    "test": "node --import tsx --test test/match.test.ts test/email.test.ts test/facebook.test.ts test/store.test.ts test/pipeline.test.ts test/server.test.ts test/idealista.test.ts test/desc.test.ts test/endpoint-health.test.ts test/subito.test.ts test/immobiliare.test.ts test/score.test.ts test/model-select.test.ts test/config-local.test.ts test/providers.test.ts test/provider-adapters.test.ts test/failover.test.ts test/penalties.test.ts test/stats.test.ts test/ai-api.test.ts test/thumbs.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

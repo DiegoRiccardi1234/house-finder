@@ -10,6 +10,8 @@ import { isResidential } from '../core/match.js';
 import { looksLikeListing, isShortTerm } from '../sources/fb-parse.js';
 import { FB_STATE_PATH } from '../config/facebook.js';
 import { configReadPath, localConfigPath } from '../config/paths.js';
+import { imageHeaders, isAllowedImageHost, normalizeImageUrl } from '../core/img-fetch.js';
+import { THUMBS_DIR, THUMB_URL_PREFIX, thumbContentType } from '../core/thumbs.js';
 import { chromium } from 'playwright';
 import { createAiRouter } from './aiRoutes.js';
 import { primaryProvider } from '../ai/credentials.js';
@@ -38,21 +40,6 @@ const CONFIG_FILES: Record<ConfigKey, string> = {
 };
 
 const UI_DIST = fileURLToPath(new URL('../../ui/dist', import.meta.url));
-
-const DESKTOP_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-
-// Host CDN ammessi per il proxy immagini (anti-SSRF: solo questi, solo https).
-const IMG_HOST_SUFFIXES = ['.sbito.it', '.subito.it', '.fbcdn.net', '.idealista.it', '.im-cdn.it', '.immobiliare.it'];
-function isAllowedImageHost(host: string): boolean {
-  return IMG_HOST_SUFFIXES.some((s) => host === s.slice(1) || host.endsWith(s));
-}
-function imgRefererFor(host: string): string {
-  if (host.endsWith('.fbcdn.net')) return 'https://www.facebook.com/';
-  if (host.includes('sbito') || host.endsWith('.subito.it')) return 'https://www.subito.it/';
-  if (host.endsWith('.idealista.it')) return 'https://www.idealista.it/';
-  return 'https://www.immobiliare.it/';
-}
 
 // Inoltra le reject degli handler async a Express (altrimenti la richiesta resta appesa).
 type AsyncHandler = (req: Request, res: Response) => unknown;
@@ -163,25 +150,40 @@ export function createApp(deps: AppDeps): Express {
     });
   });
 
+  // --- Miniature copiate in locale dalla pipeline (`core/thumbs.ts`). Sono il caso normale:
+  // gli URL remoti scadono (Facebook) o vogliono un `?rule=` (Subito). File immutabili: il nome
+  // è l'hash del contenuto d'origine, quindi la cache del browser può tenerli per sempre. ---
+  app.use(
+    THUMB_URL_PREFIX,
+    express.static(THUMBS_DIR, {
+      maxAge: '30d',
+      immutable: true,
+      setHeaders: (res, filePath) => {
+        const type = thumbContentType(filePath);
+        if (type) res.setHeader('Content-Type', type);
+      },
+    }),
+  );
+  // Miniatura assente → 404 secco. Senza questo cadrebbe nel fallback SPA e il browser
+  // riceverebbe l'index.html con stato 200 al posto di un'immagine.
+  app.use(THUMB_URL_PREFIX, (_req, res) => {
+    res.status(404).end();
+  });
+
   // --- Image proxy: rifà la richiesta lato server col Referer/UA giusti (miniature Subito/FB
-  // hotlink-bloccate). Allowlist host + solo https = niente SSRF verso indirizzi interni. ---
+  // hotlink-bloccate). Resta per gli URL remoti non ancora copiati in locale.
+  // Allowlist host + solo https = niente SSRF verso indirizzi interni. ---
   app.get('/api/img', async (req, res) => {
     const src = typeof req.query.src === 'string' ? req.query.src : '';
     let u: URL;
     try {
-      u = new URL(src);
+      u = new URL(normalizeImageUrl(src));
     } catch {
       return res.status(400).end();
     }
     if (u.protocol !== 'https:' || !isAllowedImageHost(u.hostname)) return res.status(400).end();
     try {
-      const upstream = await fetch(u.toString(), {
-        headers: {
-          Referer: imgRefererFor(u.hostname),
-          'User-Agent': DESKTOP_UA,
-          Accept: 'image/avif,image/webp,image/*,*/*;q=0.8',
-        },
-      });
+      const upstream = await fetch(u.toString(), { headers: imageHeaders(u.hostname) });
       if (!upstream.ok) return res.status(502).end();
       const ct = upstream.headers.get('content-type') ?? 'image/jpeg';
       const buf = Buffer.from(await upstream.arrayBuffer());

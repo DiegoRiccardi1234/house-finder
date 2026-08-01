@@ -1,4 +1,5 @@
 import type { Listing, Source } from '../core/types.js';
+import { SUBITO_IMG_RULE } from '../core/img-fetch.js';
 import { gotoResilient, assertNotBlocked } from './page-utils.js';
 import { readNextData } from './nextdata.js';
 
@@ -30,7 +31,7 @@ function featureValue(it: SubitoItem, uri: string): SubitoFeatureValue | undefin
 
 // Il `cdnBaseUrl` grezzo del __NEXT_DATA__ non è servibile (400): serve il ?rule= che il frontend
 // applica alle card. Verificato dal vivo: questo rende un'immagine 200 (anche senza referer).
-const SUBITO_IMG_RULE = 'large-fixed-card-1x-auto';
+// La regola vive in `core/img-fetch.ts` perché la riapplica anche chi ripara gli URL già salvati.
 function subitoThumb(it: SubitoItem): string | null {
   const base = it.images?.[0]?.cdnBaseUrl;
   return base ? `${base}?rule=${SUBITO_IMG_RULE}` : null;

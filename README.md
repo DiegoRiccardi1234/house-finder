@@ -148,6 +148,10 @@ channels ──► pipeline (dedup + AI) ──► ListingStore ──► Expres
 
 - `src/core/pipeline.ts` — orchestration, isolated per channel, incremental save, injectable log.
 - `src/core/store.ts` + `src/core/atomic.ts` — persistence, atomic write + `.bak`, resilient load.
+- `src/core/thumbs.ts` — thumbnails are **copied to disk** during a run (`state/thumbs/`, gitignored).
+  Facebook photo URLs are signed and expire within days, Subito's need a `?rule=` parameter and both
+  block hotlinking: keeping the remote URL means empty cards a week later. The local copy also feeds
+  the vision stage as base64, which is the only form every provider accepts.
 - `src/ai/score.ts` — batch scoring, field extraction, `finish_reason` handling, failover.
 - `src/ai/endpoint-health.ts` — model ranking and penalties.
 - `src/sources/` — one adapter per channel, each testable in isolation.
@@ -164,7 +168,9 @@ npm run try:email           # read unread mail, print extracted listings (non-de
 npm run try:source -- <portal> <profile>   # single scraper, headed
 npm run debug:page -- <portal> <profile>   # dump HTML to tune selectors
 npm run monitor             # CLI run (e-mail; + scrapers with ENABLE_SCRAPERS=1)
-npm test                    # 135 tests
+npm run fix:thumbs          # re-download the thumbnails of listings already in the archive
+npm run docs:shots          # regenerate the README screenshots from the demo dataset
+npm test                    # 147 tests
 npm run typecheck           # tsc --noEmit (and: npm --prefix ui run typecheck)
 ```
 
@@ -306,6 +312,11 @@ canali ──► pipeline (dedup + AI) ──► ListingStore ──► API Expr
 
 - `src/core/pipeline.ts` — orchestrazione, isolata per canale, save incrementale, log iniettabile.
 - `src/core/store.ts` + `src/core/atomic.ts` — persistenza, scrittura atomica + `.bak`, load resiliente.
+- `src/core/thumbs.ts` — le miniature vengono **copiate su disco** durante il run (`state/thumbs/`,
+  gitignorata). Gli URL delle foto Facebook sono firmati e scadono in pochi giorni, quelli di Subito
+  vogliono un `?rule=`, e tutti e due bloccano l'hotlink: tenere l'URL remoto significa card vuote una
+  settimana dopo. La copia locale alimenta anche lo stadio vision in base64, l'unica forma che tutti
+  i provider accettano.
 - `src/ai/score.ts` — scoring a gruppi, estrazione campi, gestione `finish_reason`, failover.
 - `src/ai/endpoint-health.ts` — ranking dei modelli e penalità.
 - `src/sources/` — un adapter per canale, ognuno testabile in isolamento.
@@ -322,7 +333,9 @@ npm run try:email           # legge le mail non lette e stampa gli annunci estra
 npm run try:source -- <portale> <profilo>   # un singolo scraper, headed
 npm run debug:page -- <portale> <profilo>   # dump HTML per tarare i selettori
 npm run monitor             # run da CLI (email; + scraper con ENABLE_SCRAPERS=1)
-npm test                    # 135 test
+npm run fix:thumbs          # riscarica le miniature degli annunci già in archivio
+npm run docs:shots          # rigenera gli screenshot del README dal dataset demo
+npm test                    # 147 test
 npm run typecheck           # tsc --noEmit (e: npm --prefix ui run typecheck)
 ```
 

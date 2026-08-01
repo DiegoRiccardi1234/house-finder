@@ -10,7 +10,7 @@
       "rooms": 2,
       "sizeSqm": 55,
       "zone": "Crocetta",
-      "thumb": null,
+      "thumb": "/demo/1.jpg",
       "desc": "Bilocale completamente arredato al terzo piano con ascensore. Doppia esposizione, riscaldamento centralizzato con valvole, classe energetica D. Contratto 4+4, disponibile da settembre. No agenzie."
     },
     "ai": {
@@ -28,7 +28,7 @@
       "contatto": "privato", "riassunto": "Bilocale arredato in Crocetta, terzo piano con ascensore."
     },
     "visionSummary": "Soggiorno luminoso con divano e tavolo, cucina a vista in buono stato.",
-    "photos": [],
+    "photos": ["/demo/1.jpg"],
     "channel": "email",
     "firstSeen": "2026-07-24T08:12:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
@@ -46,7 +46,7 @@
       "rooms": 3,
       "sizeSqm": 85,
       "zone": "Cit Turin",
-      "thumb": null,
+      "thumb": "/demo/3.jpg",
       "desc": "Trilocale ristrutturato nel 2024, due camere matrimoniali, cucina abitabile arredata. Ideale per condivisione. Classe energetica C, aria condizionata in soggiorno. Ascensore, portineria."
     },
     "ai": {
@@ -64,7 +64,7 @@
       "contatto": "agenzia", "riassunto": "Trilocale ristrutturato adatto a due persone."
     },
     "visionSummary": "Cucina abitabile nuova, camera con armadio a muro, bagno con doccia.",
-    "photos": [],
+    "photos": ["/demo/3.jpg"],
     "channel": "email",
     "firstSeen": "2026-07-26T09:05:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
@@ -82,7 +82,7 @@
       "rooms": 1,
       "sizeSqm": 38,
       "zone": "Torino",
-      "thumb": null,
+      "thumb": "/demo/6.jpg",
       "desc": "Monolocale arredato, secondo piano senza ascensore. Angolo cottura, bagno con doccia. Riscaldamento autonomo. Zona San Salvario a due passi dalla metro. No spese di agenzia."
     },
     "ai": {
@@ -100,7 +100,7 @@
       "contatto": "privato", "riassunto": "Monolocale arredato vicino alla metro."
     },
     "visionSummary": null,
-    "photos": [],
+    "photos": ["/demo/6.jpg"],
     "channel": "subito",
     "firstSeen": "2026-07-27T18:22:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
@@ -154,7 +154,7 @@
       "rooms": 2,
       "sizeSqm": 60,
       "zone": "Cenisia",
-      "thumb": null,
+      "thumb": "/demo/2.jpg",
       "desc": "Bilocale all'ultimo piano con terrazzino abitabile. Arredato, climatizzato, classe B. Palazzo con ascensore. Contratto transitorio 18 mesi."
     },
     "ai": {
@@ -172,7 +172,7 @@
       "contatto": "agenzia", "riassunto": "Bilocale con terrazzino all'ultimo piano."
     },
     "visionSummary": "Terrazzino con tavolino, soggiorno con divano angolare, finestre grandi.",
-    "photos": [],
+    "photos": ["/demo/2.jpg"],
     "channel": "email",
     "firstSeen": "2026-07-28T06:30:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
@@ -190,7 +190,7 @@
       "rooms": 2,
       "sizeSqm": 62,
       "zone": "Carrassi",
-      "thumb": null,
+      "thumb": "/demo/7.jpg",
       "desc": "Bilocale ristrutturato e arredato a nuovo, secondo piano con ascensore. Aria condizionata, classe energetica C. Zona Carrassi, vicino ai servizi."
     },
     "ai": {
@@ -208,7 +208,7 @@
       "contatto": "privato", "riassunto": "Bilocale ristrutturato in Carrassi."
     },
     "visionSummary": "Ambienti chiari, cucina lineare nuova, camera matrimoniale con balcone.",
-    "photos": [],
+    "photos": ["/demo/7.jpg"],
     "channel": "email",
     "firstSeen": "2026-07-23T15:02:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
@@ -226,7 +226,7 @@
       "rooms": 4,
       "sizeSqm": 110,
       "zone": "Murat",
-      "thumb": null,
+      "thumb": "/demo/5.jpg",
       "desc": "Ampio quadrilocale nel quartiere Murat, tre camere, doppi servizi. Arredato parzialmente. Palazzo d'epoca senza ascensore, terzo piano."
     },
     "ai": {
@@ -244,7 +244,7 @@
       "contatto": "agenzia", "riassunto": "Quadrilocale d'epoca adatto alla condivisione."
     },
     "visionSummary": null,
-    "photos": [],
+    "photos": ["/demo/5.jpg"],
     "channel": "email",
     "firstSeen": "2026-07-22T10:15:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
@@ -262,7 +262,7 @@
       "rooms": 2,
       "sizeSqm": null,
       "zone": null,
-      "thumb": null,
+      "thumb": "/demo/4.jpg",
       "desc": "[Gruppo affitti · torino] Affitto bilocale arredato in zona Santa Rita, quarto piano con ascensore, riscaldamento autonomo. Solo referenziati, no agenzie. Scrivetemi in privato per la visita."
     },
     "ai": {
@@ -280,7 +280,7 @@
       "contatto": "privato", "riassunto": "Bilocale arredato da privato in Santa Rita."
     },
     "visionSummary": null,
-    "photos": [],
+    "photos": ["/demo/4.jpg"],
     "channel": "facebook",
     "firstSeen": "2026-07-28T20:45:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
@@ -334,7 +334,7 @@
       "rooms": 2,
       "sizeSqm": 52,
       "zone": "Parella",
-      "thumb": null,
+      "thumb": "/demo/8.jpg",
       "desc": "Bilocale arredato in zona Parella, primo piano, riscaldamento autonomo. Cucina abitabile, balcone. Libero da subito."
     },
     "ai": {
@@ -352,7 +352,7 @@
       "contatto": "privato", "riassunto": "Bilocale arredato con balcone in Parella."
     },
     "visionSummary": "Cucina abitabile con tavolo, balcone affacciato sul cortile.",
-    "photos": [],
+    "photos": ["/demo/8.jpg"],
     "channel": "facebook",
     "firstSeen": "2026-07-29T06:10:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
@@ -406,7 +406,7 @@
       "rooms": 2,
       "sizeSqm": 50,
       "zone": "Bari",
-      "thumb": null,
+      "thumb": "/demo/2.jpg",
       "desc": "Bilocale arredato in zona Madonnella, terzo piano con ascensore. Riscaldamento autonomo, doppi vetri. Disponibile da agosto."
     },
     "ai": {
@@ -424,7 +424,7 @@
       "contatto": "privato", "riassunto": "Bilocale arredato in Madonnella."
     },
     "visionSummary": null,
-    "photos": [],
+    "photos": ["/demo/2.jpg"],
     "channel": "subito",
     "firstSeen": "2026-07-25T08:48:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
@@ -442,7 +442,7 @@
       "rooms": 2,
       "sizeSqm": 48,
       "zone": "Centro",
-      "thumb": null,
+      "thumb": "/demo/7.jpg",
       "desc": "Bilocale ristrutturato in pieno centro storico, arredato con gusto. Quarto piano con ascensore, riscaldamento autonomo."
     },
     "ai": {
@@ -460,7 +460,7 @@
       "contatto": "agenzia", "riassunto": "Bilocale ristrutturato in centro, sopra budget."
     },
     "visionSummary": "Interni curati, travi a vista, cucina moderna compatta.",
-    "photos": [],
+    "photos": ["/demo/7.jpg"],
     "channel": "email",
     "firstSeen": "2026-07-21T12:00:00.000Z",
     "lastSeen": "2026-07-28T09:20:00.000Z",
@@ -478,7 +478,7 @@
       "rooms": 3,
       "sizeSqm": 100,
       "zone": "San Secondo",
-      "thumb": null,
+      "thumb": "/demo/3.jpg",
       "desc": "Trilocale in zona San Secondo, mai affittato dopo la ristrutturazione. Due camere doppie, cucina separata, due bagni. Classe A."
     },
     "ai": {
@@ -496,7 +496,7 @@
       "contatto": "agenzia", "riassunto": "Trilocale nuovo con doppi servizi in San Secondo."
     },
     "visionSummary": "Parquet chiaro, cucina separata attrezzata, bagno con vasca.",
-    "photos": [],
+    "photos": ["/demo/3.jpg"],
     "channel": "email",
     "firstSeen": "2026-07-29T05:35:00.000Z",
     "lastSeen": "2026-07-29T07:40:00.000Z",
