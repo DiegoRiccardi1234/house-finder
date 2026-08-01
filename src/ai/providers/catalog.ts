@@ -49,12 +49,14 @@ export const CATALOG: ProviderSpec[] = [
     needsEndpoint: false,
     keyOptional: false,
     caps: compat({ health: 'openrouter' }),
+    // Pool per lo scoring JSON: fascia 26-40B, instruct, non-reasoning. I giganti reasoning
+    // (nemotron-ultra-550b, nemotron-super-120b, gpt-oss) bruciano il budget token in
+    // chain-of-thought e consegnano JSON troncato — taglia ≠ qualità, qui. Verificati vivi su
+    // `/endpoints` (uptime_last_5m ≥ 99,5%); `gpt-oss-120b:free` è sparito dal catalogo.
     reasoning: [
       'google/gemma-4-26b-a4b-it:free',
       'google/gemma-4-31b-it:free',
       'nvidia/nemotron-3-nano-30b-a3b:free',
-      'nvidia/nemotron-3-ultra-550b-a55b:free',
-      'openai/gpt-oss-120b:free',
     ],
     vision: ['google/gemma-4-26b-a4b-it:free', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'],
   },

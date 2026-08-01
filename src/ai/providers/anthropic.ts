@@ -2,12 +2,25 @@ import { InvalidKeyError, normalizeFinish, EmptyCompletionError, TruncatedComple
 import type { ChatMessage, ChatRequest, Provider, ProviderCaps } from './types.js';
 
 /** Blocco di contenuto nel formato Anthropic (diverso da quello OpenAI). */
-type Block = { type: 'text'; text: string } | { type: 'image'; source: { type: 'url'; url: string } };
+type ImageSource =
+  | { type: 'url'; url: string }
+  | { type: 'base64'; media_type: string; data: string };
+type Block = { type: 'text'; text: string } | { type: 'image'; source: ImageSource };
+
+/**
+ * Le foto arrivano come data URI (la pipeline le copia in locale: le CDN dei portali bloccano
+ * l'hotlink). Anthropic non accetta un data URI dentro `source.url`: vuole il base64 spacchettato
+ * in `media_type` + `data`.
+ */
+function toImageSource(url: string): ImageSource {
+  const m = /^data:([^;,]+);base64,(.*)$/s.exec(url);
+  return m ? { type: 'base64', media_type: m[1], data: m[2] } : { type: 'url', url };
+}
 
 function toBlocks(content: ChatMessage['content']): Block[] {
   if (typeof content === 'string') return [{ type: 'text', text: content }];
   return content.map((p) =>
-    p.type === 'text' ? { type: 'text', text: p.text } : { type: 'image', source: { type: 'url', url: p.url } },
+    p.type === 'text' ? { type: 'text', text: p.text } : { type: 'image', source: toImageSource(p.url) },
   );
 }
 

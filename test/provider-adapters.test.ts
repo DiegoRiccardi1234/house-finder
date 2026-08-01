@@ -111,6 +111,22 @@ test('anthropic: le immagini usano source, non image_url', async () => {
   }
 });
 
+test('anthropic: un data URI diventa source base64 (le foto arrivano dalla cache locale)', async () => {
+  const stub = stubFetch({ content: [{ type: 'text', text: 'una stanza' }], stop_reason: 'end_turn' });
+  try {
+    await anthropic().chat({
+      model: 'claude-3-5-haiku-latest',
+      messages: [{ role: 'user', content: [{ type: 'image', url: 'data:image/avif;base64,AAECAw==' }] }],
+    });
+    const messages = stub.calls[0].body.messages as { content: Record<string, unknown>[] }[];
+    const img = messages[0].content[0] as { source: Record<string, string> };
+    // Anthropic non accetta il data URI dentro `source.url`: va spacchettato.
+    assert.deepEqual(img.source, { type: 'base64', media_type: 'image/avif', data: 'AAECAw==' });
+  } finally {
+    stub.restore();
+  }
+});
+
 test('anthropic: max_tokens → troncamento, 401 → key invalida', async () => {
   const t = stubFetch({ content: [{ type: 'text', text: 'tagli' }], stop_reason: 'max_tokens' });
   try {

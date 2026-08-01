@@ -4,6 +4,7 @@ import { matches, isResidential } from './match.js';
 import { ListingStore, type StoredListing } from './store.js';
 import { scoreBatch, configured as aiConfigured, type ScoreResult } from '../ai/score.js';
 import { describePhotos, visionConfigured } from '../ai/vision.js';
+import { cacheThumbs, isCachedThumb, pruneThumbs } from './thumbs.js';
 
 /**
  * Pipeline importabile: raccoglie annunci dai canali, li de-duplica, li valuta con l'AI e
@@ -54,6 +55,36 @@ function empty(channel: ChannelId, errors: string[] = []): RunResult {
 }
 
 /**
+ * Copia in locale le miniature del run (vedi `core/thumbs.ts` per il perché).
+ * I nuovi le prendono sempre; i già-visti solo se in archivio hanno ancora un URL remoto —
+ * self-heal una volta sola per annuncio, senza ri-scaricare a ogni run quello che è già in cache.
+ * Ritorna: dedupKey → percorso `/thumbs/…`.
+ */
+async function cachePhotos(
+  unique: Listing[],
+  freshKeys: Set<string>,
+  store: ListingStore,
+  channel: ChannelId,
+  log: LogFn,
+): Promise<Map<string, string>> {
+  const targets = unique.filter((l) => {
+    if (!l.thumb) return false;
+    if (freshKeys.has(dedupKey(l))) return true;
+    return !isCachedThumb(store.get(dedupKey(l))?.photos[0]);
+  });
+  const out = new Map<string, string>();
+  if (!targets.length) return out;
+
+  const byUrl = await cacheThumbs(targets.map((l) => l.thumb as string));
+  for (const l of targets) {
+    const p = byUrl.get(l.thumb as string);
+    if (p) out.set(dedupKey(l), p);
+  }
+  log(`[${channel}] miniature: ${out.size}/${targets.length} copiate in locale`);
+  return out;
+}
+
+/**
  * Passo comune: dedup nel run → scoring dei SOLI nuovi → upsert nel store.
  * I nuovi ricevono `ai`/`photos`/`notified`; i già-visti si ri-upsertano senza patch per
  * rinfrescare `lastSeen`/contenuto preservando `ai` e lo `status` scelto dall'utente.
@@ -77,6 +108,10 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
 
   log(`[${channel}] raccolti ${listings.length} · unici ${unique.length} · nuovi ${freshKeys.size}`);
 
+  // Prima di tutto il resto: le foto in locale. Serve al vision (i provider non arrivano alle CDN
+  // hotlink-bloccate) e all'archivio (gli URL Facebook scadono in pochi giorni).
+  const photoOf = await cachePhotos(unique, freshKeys, store, channel, log);
+
   let scores = new Map<string, ScoreResult>();
   let visions = new Map<string, string>();
   if (doScore && freshKeys.size) {
@@ -85,7 +120,7 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
     // Stadio 1 (vision): descrive le foto, se attivo. Plus non bloccante.
     if (opts.vision ?? visionConfigured()) {
       try {
-        visions = await describePhotos(fresh, log);
+        visions = await describePhotos(fresh, log, photoOf);
         if (visions.size) log(`[${channel}] vision: ${visions.size} foto descritte`);
       } catch (e) {
         log(`[${channel}] vision fallita: ${(e as Error).message}`);
@@ -110,18 +145,24 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
   const now = new Date().toISOString();
   const newRecords: StoredListing[] = [];
   for (const l of unique) {
-    const isFresh = freshKeys.has(dedupKey(l));
-    const res = scores.get(dedupKey(l));
+    const key = dedupKey(l);
+    const isFresh = freshKeys.has(key);
+    const res = scores.get(key);
+    // Copia locale se c'è, altrimenti l'URL remoto: meglio un hotlink che una card vuota.
+    const local = photoOf.get(key);
+    const photo = local ?? l.thumb ?? null;
     const rec = isFresh
       ? store.upsert(l, now, {
           channel,
           ai: res?.ai ?? null,
           fields: res?.fields ?? null,
-          visionSummary: visions.get(dedupKey(l)) ?? null,
-          photos: l.thumb ? [l.thumb] : [],
+          visionSummary: visions.get(key) ?? null,
+          photos: photo ? [photo] : [],
           notified: false,
         })
-      : store.upsert(l, now); // già-visto: rinfresca lastSeen/contenuto, preserva ai/fields/status/channel
+      : // già-visto: rinfresca lastSeen/contenuto, preserva ai/fields/status/channel.
+        // `photos` solo se abbiamo appena messo in cache la foto (self-heal degli URL scaduti).
+        store.upsert(l, now, local ? { photos: [local] } : {});
     if (isFresh) newRecords.push(rec);
   }
 
@@ -344,6 +385,15 @@ export async function runPipeline(channels: ChannelId[], opts: RunOptions): Prom
       results.push(empty('facebook', [`facebook: ${(e as Error).message}`]));
     }
     await save('facebook');
+  }
+
+  // Le miniature degli annunci potati resterebbero su disco per sempre. Best-effort: una pulizia
+  // fallita non è mai un buon motivo per far fallire un run.
+  try {
+    const removed = await pruneThumbs(opts.store.all().flatMap((r) => r.photos));
+    if (removed) log(`🧹 miniature non più referenziate: ${removed} rimosse`);
+  } catch {
+    /* ignora */
   }
 
   const finishedAt = new Date().toISOString();

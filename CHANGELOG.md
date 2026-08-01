@@ -6,6 +6,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-01
+
+### Fixed
+
+- **Listing photos actually show up.** Thumbnails are now downloaded during a run and served from
+  disk (`state/thumbs/`, gitignored) instead of being hotlinked. Facebook photo URLs are signed and
+  expire within days — every card scraped more than a week ago had lost its picture — and Subito's
+  CDN answers `400` unless the `?rule=` parameter is present. The cache key ignores Facebook's
+  volatile signature, so the same photo is fetched once and not re-downloaded at every run.
+- Listings already in the archive repair themselves: a re-run replaces a remote URL with the local
+  copy. `npm run fix:thumbs` does the same in one pass for everything already stored.
+- Cards fall back through local copy → remote URL → "no photo" placeholder. A broken image used to
+  leave an empty grey box, which is why the problem looked worse than it was.
+- The **vision stage** sends the photo as a base64 data URI instead of a raw URL, so it finally works
+  on Subito and Facebook — where the provider previously received a `403` every single time. The
+  Anthropic adapter unpacks the data URI into `media_type` + `data`, the form its API requires.
+- `/thumbs/*` answers `404` for a missing file instead of falling through to the SPA's `index.html`.
+
+### Changed
+
+- OpenRouter's scoring pool drops `openai/gpt-oss-120b:free` (removed from the catalogue, zero
+  endpoints) and `nvidia/nemotron-3-ultra-550b-a55b:free` (a reasoning model that burns the token
+  budget on hidden chain-of-thought and truncates the JSON). What is left is the 26-40B instruct
+  band, verified live: gemma-4-26b → gemma-4-31b → nemotron-3-nano-30b.
+- README screenshots are regenerated from the demo dataset, which now carries free
+  [Unsplash](https://unsplash.com/license) interior photos (`ui/public/demo/`, see
+  [docs/CREDITS.md](docs/CREDITS.md)) — four listings stay photo-less on purpose, because that is
+  what the app does when a listing has no usable image.
+
+### Added
+
+- `npm run fix:thumbs` — one-shot repair of the thumbnails already in the archive (run it with the
+  server stopped, or the next save will overwrite the result).
+- `npm run docs:shots` — regenerates `docs/*.png` from the demo dataset with the real config kept
+  out of frame.
+
 ## [1.1.0] - 2026-07-30
 
 ### Added
@@ -72,7 +108,8 @@ First public release.
   testing without touching the real archive.
 - **CI** on Node 20 and 22 (type-check + 101 tests) and a Windows release bundle.
 
-[Unreleased]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/DiegoRiccardi1234/house-finder/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/DiegoRiccardi1234/house-finder/releases/tag/v1.0.0
