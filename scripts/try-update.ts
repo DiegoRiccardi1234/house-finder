@@ -20,7 +20,7 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +58,21 @@ async function mostraDiario(install: string): Promise<void> {
 
 function estrai(zip: string, dest: string): void {
   execFileSync('tar', ['-xf', zip, '-C', dest], { stdio: 'inherit' });
+}
+
+/**
+ * Dove sono finiti davvero i file: lo zip contiene una cartella `HouseFinder/`.
+ *
+ * Anche l'aggiornatore fa questo passo, e va bene che qui sia scritto a parte: se un giorno la
+ * forma dell'archivio cambia di nuovo, la prova deve accorgersene invece di adattarsi in silenzio.
+ */
+async function radiceEstratta(dir: string): Promise<string> {
+  const voci = await readdir(dir, { withFileTypes: true });
+  if (voci.length === 1 && voci[0]?.isDirectory()) {
+    const dentro = join(dir, voci[0].name);
+    if (await esiste(join(dentro, 'app'))) return dentro;
+  }
+  return dir;
 }
 
 function comprimi(dir: string, zip: string): void {
@@ -116,14 +131,18 @@ async function main(): Promise<void> {
   }
 
   const base = await mkdtemp(join(tmpdir(), 'hf-e2e-'));
-  const install = join(base, 'installato');
+  const estratto = join(base, 'installato');
   const nuovo = join(base, 'nuovo');
   const zipNuovo = join(base, 'HouseFinder-windows.zip');
-  await mkdir(install, { recursive: true });
+  await mkdir(estratto, { recursive: true });
   await mkdir(nuovo, { recursive: true });
 
-  passo(`Installo la versione attuale in ${install}`);
-  estrai(ZIP, install);
+  passo('Installo la versione attuale');
+  estrai(ZIP, estratto);
+  // L'installazione è la cartella DENTRO lo zip, non quella in cui si è estratto: è la stessa
+  // cosa che fa una persona che apre l'archivio e trascina fuori `HouseFinder`.
+  const install = await radiceEstratta(estratto);
+  console.log(`   in ${install}`);
 
   // I file che l'aggiornamento NON deve toccare.
   await mkdir(join(install, 'state'), { recursive: true });
@@ -134,11 +153,14 @@ async function main(): Promise<void> {
 
   passo(`Fabbrico il bundle "nuovo" (versione ${VERSIONE_FINTA})`);
   estrai(ZIP, nuovo);
-  const versionJs = join(nuovo, 'app', 'src', 'version.js');
+  const nuovoRoot = await radiceEstratta(nuovo);
+  const versionJs = join(nuovoRoot, 'app', 'src', 'version.js');
   const src = await readFile(versionJs, 'utf8');
   await writeFile(versionJs, src.replace(/APP_VERSION = '[^']+'/, `APP_VERSION = '${VERSIONE_FINTA}'`));
   // La prova che i file sono stati sostituiti davvero, non solo che il numero è cambiato.
-  await writeFile(join(nuovo, 'PROVA-AGGIORNAMENTO.txt'), 'arrivato con la versione nuova\n');
+  await writeFile(join(nuovoRoot, 'PROVA-AGGIORNAMENTO.txt'), 'arrivato con la versione nuova\n');
+  // Si comprime il CONTENUTO di `nuovo/`, che è la cartella `HouseFinder/`: così l'archivio ha la
+  // stessa forma di quello vero, cartella-contenitore compresa.
   comprimi(nuovo, zipNuovo);
   const { size } = await stat(zipNuovo);
 

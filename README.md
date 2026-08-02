@@ -99,8 +99,9 @@ npm start                   # → http://localhost:3000
 Node 20+. For the browser channels: `npx playwright install chromium`.
 
 Prefer not to install anything? Grab `HouseFinder-windows.zip` from the
-[latest release](https://github.com/DiegoRiccardi1234/house-finder/releases/latest), unzip, run
-`HouseFinder.vbs`. No console window: the app lives in a **tray icon** (open · copy address · quit).
+[latest release](https://github.com/DiegoRiccardi1234/house-finder/releases/latest), unzip the
+`HouseFinder` folder wherever you like, run `HouseFinder.vbs` inside it. No console window: the app
+lives in a **tray icon** (open · copy address · quit).
 `HouseFinder-console.bat` starts the same server with a visible window when something refuses to
 start; either way the log is in `state\logs\house-finder.log`. The bundle ships Node but **not** the
 Playwright browsers (~400 MB): without them the app runs in e-mail-only mode — the dashboard shows the
@@ -276,8 +277,9 @@ npm start                   # → http://localhost:3000
 Serve Node 20+. Per i canali browser: `npx playwright install chromium`.
 
 Non vuoi installare niente? Scarica `HouseFinder-windows.zip` dalla
-[release più recente](https://github.com/DiegoRiccardi1234/house-finder/releases/latest), estrai e
-lancia `HouseFinder.vbs`. Nessuna finestra: l'app vive in un'**icona nell'area di notifica** (apri ·
+[release più recente](https://github.com/DiegoRiccardi1234/house-finder/releases/latest), estrai la
+cartella `HouseFinder` dove preferisci e lancia `HouseFinder.vbs` che c'è dentro. Nessuna finestra:
+l'app vive in un'**icona nell'area di notifica** (apri ·
 copia indirizzo · esci). `HouseFinder-console.bat` avvia lo stesso server con la finestra visibile,
 utile quando qualcosa non parte; in ogni caso il log è in `state\logs\house-finder.log`. Il bundle
 include Node ma **non** i browser Playwright (~400 MB): senza quelli l'app parte in modalità

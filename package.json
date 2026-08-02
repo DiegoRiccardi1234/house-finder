@@ -1,6 +1,6 @@
 {
   "name": "house-finder",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "description": "Multi-channel rental listing monitor with AI scoring and a local web dashboard",
   "license": "MIT",

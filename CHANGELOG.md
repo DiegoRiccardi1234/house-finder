@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-08-02
+
+### Fixed
+
+- **The ZIP now contains a single `HouseFinder/` folder**, like the sibling projects. It used to
+  hold eleven loose entries, so extracting it into Downloads scattered them among everything else.
+  Installations from 1.3.0 onwards update across the change without noticing: the updater already
+  unwrapped a wrapper folder when it found one, and now it finds one.
+- The build refuses to produce an incomplete package. `tsconfig.build.json` had the output
+  directory hardcoded, so renaming the staging folder made the compiler write to one place while
+  the packer read from another — the ZIP came out the right size, full of dependencies and without
+  a single line of our own code. The path is now passed explicitly, and the build checks that the
+  files it cannot work without are actually there before compressing.
+
 ## [1.4.0] - 2026-08-02
 
 ### Added

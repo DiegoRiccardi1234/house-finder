@@ -1,7 +1,7 @@
 /**
  * Costruisce il bundle Windows scaricabile: dist/HouseFinder-windows.zip
  *
- * Contenuto dello zip:
+ * Contenuto dello zip: una cartella `HouseFinder/`, e dentro:
  *   node.exe                 build ufficiale Node per Windows x64
  *   app/                     server+CLI compilati (tsc) + ui/dist + data/ + scripts/tray.ps1
  *   node_modules/            solo dipendenze di produzione, senza browser Playwright
@@ -26,8 +26,23 @@ import { join } from 'node:path';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DIST = join(ROOT, 'dist');
-const STAGE = join(DIST, 'stage');
+/**
+ * La cartella si chiama come l'app perché **finisce dentro lo zip con questo nome**.
+ *
+ * Prima si comprimeva il CONTENUTO (`-Path '<stage>\*'`) e l'archivio si apriva su undici voci
+ * sparse: estratto dentro Download, le mescolava a tutto il resto. Job e Trip Finder mettono una
+ * cartella sola e si estraggono dove capita senza fare danni.
+ */
+const STAGE = join(DIST, 'HouseFinder');
 const APP = join(STAGE, 'app');
+/**
+ * Lo stesso percorso, relativo alla radice: è quello che si passa a `tsc`.
+ *
+ * Non l'assoluto: `run()` usa `shell: true` su Windows e non mette le virgolette, quindi un path
+ * che contiene uno spazio — e questo progetto vive in "Script programmati" — arriva spezzato in
+ * due, e `tsc` risponde «Option 'project' cannot be mixed with source files».
+ */
+const APP_REL = 'dist/HouseFinder/app';
 
 /** Versione di Node spedita nello zip. Aggiornala insieme alla matrice della CI. */
 const NODE_VERSION = process.env.BUNDLE_NODE_VERSION ?? '22.11.0';
@@ -44,7 +59,10 @@ async function main() {
   await mkdir(APP, { recursive: true });
 
   step('Compilazione TypeScript → app/');
-  run('npx', ['tsc', '-p', 'tsconfig.build.json']);
+  // `--outDir` esplicito: il `tsconfig.build.json` ne dichiara uno, e quando la cartella di stage
+  // è stata rinominata i due sono andati a divergere in silenzio — `tsc` compilava nella vecchia e
+  // lo zip usciva con node_modules ma senza una riga di codice nostro. Qui il percorso è uno solo.
+  run('npx', ['tsc', '-p', 'tsconfig.build.json', '--outDir', APP_REL]);
 
   step('Build della UI');
   run('npm', ['run', 'ui:build']);
@@ -122,12 +140,35 @@ async function main() {
     await cp(join(ROOT, f), join(STAGE, f));
   }
 
+  step('Controllo che il pacchetto sia completo');
+  // Uno zip che pesa giusto ma non contiene il codice si scopre solo quando qualcuno prova ad
+  // aprirlo — cioè dopo la pubblicazione. È già successo: `tsc` compilava in una cartella e il
+  // pacchetto si costruiva da un'altra. Meglio una build che fallisce di una release muta.
+  for (const atteso of [
+    ['node.exe'],
+    ['app', 'scripts', 'serve.js'],
+    ['app', 'scripts', 'updater.js'],
+    ['app', 'scripts', 'tray.ps1'],
+    ['app', 'src', 'version.js'],
+    ['app', 'ui', 'dist', 'index.html'],
+    ['node_modules', 'express', 'package.json'],
+    ['HouseFinder.vbs'],
+  ]) {
+    const p = join(STAGE, ...atteso);
+    await stat(p).catch(() => {
+      throw new Error(`Pacchetto incompleto: manca ${atteso.join('/')} — build interrotta.`);
+    });
+  }
+
   step('Creazione dello zip');
   const zip = join(DIST, 'HouseFinder-windows.zip');
+  // La CARTELLA, non il suo contenuto: chi estrae si ritrova un `HouseFinder\` e non undici voci
+  // sparse nella cartella dei download. L'aggiornatore scarta il livello in più da sé (`radice()`
+  // in `scripts/updater.ts`), quindi il cambio non rompe gli aggiornamenti già installati.
   run('powershell', [
     '-NoProfile',
     '-Command',
-    `Compress-Archive -Path '${STAGE}\\*' -DestinationPath '${zip}' -CompressionLevel Optimal -Force`,
+    `Compress-Archive -Path '${STAGE}' -DestinationPath '${zip}' -CompressionLevel Optimal -Force`,
   ]);
 
   const { size } = await stat(zip);

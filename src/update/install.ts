@@ -112,9 +112,9 @@ export async function verifyDownload(zipPath: string, asset: ReleaseAsset): Prom
     }
   }
   const entries = (await listZip(zipPath)).map((e) => e.replace(/\\/g, '/').replace(/^\.\//, ''));
-  // Lo zip lo crea `Compress-Archive -Path '<stage>\*'`, quindi la radice contiene già i file e
-  // non c'è la cartella-contenitore che Job/Trip Finder devono scartare. Si accettano comunque
-  // entrambe le forme: un cambio di build non deve rompere l'aggiornamento in silenzio.
+  // Lo zip contiene una cartella `HouseFinder/`, come quelli di Job e Trip Finder: estratto dove
+  // capita non sparpaglia undici voci addosso a chi lo apre. Fino alla 1.4.0 era senza, e le due
+  // forme vanno accettate entrambe — un'installazione vecchia deve poter aggiornare a una nuova.
   const has = (p: string) => entries.some((e) => e === p || e.endsWith(`/${p}`));
   for (const needed of ['node.exe', 'app/scripts/serve.js']) {
     if (!has(needed)) throw new Error(`L'archivio non contiene ${needed}: non è un bundle valido.`);
