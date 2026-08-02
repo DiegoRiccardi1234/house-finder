@@ -2,7 +2,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
-    "outDir": "dist/stage/app",
+    "outDir": "dist/HouseFinder/app",
     "rootDir": ".",
     "declaration": false,
     "sourceMap": false

@@ -141,9 +141,10 @@ function estrai(zip: string, dest: string): void {
 /**
  * La radice vera dei file estratti.
  *
- * Il nostro zip è creato con `Compress-Archive -Path '<stage>\*'`: dentro ci sono già `node.exe`
- * e `app/`, senza cartella-contenitore. Ma se un domani la build cambiasse, ritrovarsi a copiare
- * una cartella dentro l'installazione invece del suo contenuto sarebbe un disastro silenzioso.
+ * Dalla 1.4.1 lo zip contiene una cartella `HouseFinder/` e va scartato quel livello; fino alla
+ * 1.4.0 aveva i file in cima. Servono entrambe le forme, e non per pignoleria: un'installazione
+ * vecchia che si aggiorna a una nuova incontra proprio il passaggio fra le due, e copiare una
+ * cartella dentro l'installazione invece del suo contenuto sarebbe un disastro silenzioso.
  */
 async function radice(dir: string): Promise<string> {
   const voci = await readdir(dir, { withFileTypes: true });
