@@ -6,6 +6,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-02
+
+### Added
+
+- **The app updates itself.** *Config → App* checks the latest GitHub release and, one button later,
+  downloads the bundle, verifies it, replaces the files and restarts — your archive, `.env` and
+  personal config are never touched, and nothing is ever deleted. The comparison is numeric
+  (`0.10 > 0.9`, which string comparison gets backwards) and requires the release to be strictly
+  newer, so a local build ahead of the last release is never "updated" backwards.
+- **A tray icon**, and a launcher with no console window. `HouseFinder.vbs` starts the server
+  silently and leaves an icon in the notification area: open · copy address · quit. Quitting shuts
+  the server down properly instead of killing a window. `HouseFinder-console.bat` keeps the visible
+  window for when something refuses to start. Because the console can now be hidden, everything
+  printed also goes to `state\logs\house-finder.log`.
+- **You can pick the model**, per task, from *Config → Provider AI*. The engine already computed
+  which one it recommends and which it would pick on its own — the browser was throwing that away,
+  and the only way to pin a model was an environment variable. The dropdown groups models into
+  recommended / other free / paid, and the "Automatic" entry always says who it would fall back to.
+- `npm run try:update` runs the whole update against the real installed bundle — real process, real
+  locked `node.exe`, real restart — with only the GitHub release feed faked locally.
+
+### Changed
+
+- The app version now lives in `src/version.ts`, is reported by `/api/meta`, and a test fails if the
+  copies in `package.json` and `ui/package.json` drift from it.
+- A pinned model is now honoured even when the health ranking would have dropped it: an explicit
+  choice outranks a heuristic, and the failover still moves on if that model refuses. The pin also
+  no longer leaks into the candidate list of *other* providers, where it could only 404.
+- `index.html` is served with `Cache-Control: no-cache`. The hashed Vite assets can be cached
+  forever, but the file that names them cannot — otherwise the first page load after an update
+  points at files that no longer exist.
+- Only one instance runs at a time: if the port is already answering as House Finder, the second
+  launch opens the browser on it and exits instead of failing.
+
 ## [1.2.0] - 2026-08-01
 
 ### Fixed

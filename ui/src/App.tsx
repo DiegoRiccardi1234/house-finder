@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { api } from './api';
 import { useMeta } from './hooks';
 import { Dashboard, DEFAULT_FILTERS } from './components/Dashboard';
 import { RunPanel } from './components/RunPanel';
@@ -29,6 +30,24 @@ export default function App() {
   // EventSource richiuso ogni volta che si cambia scheda.
   const [visited, setVisited] = useState<Set<View>>(new Set(['dashboard']));
   const { meta, error: metaError } = useMeta(metaToken);
+  // Solo il cartellino: il pannello con i passi e il pulsante vive in Config → App.
+  const [nuovaVersione, setNuovaVersione] = useState<string | null>(null);
+  const [configTab, setConfigTab] = useState<'app' | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    api
+      .checkUpdate()
+      .then((i) => {
+        if (vivo && i.updateAvailable) setNuovaVersione(i.latest);
+      })
+      .catch(() => {
+        /* nessuna rete: l'app funziona lo stesso, e non si annuncia niente */
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   const go = useCallback((v: View) => {
     setView(v);
@@ -56,6 +75,17 @@ export default function App() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
+          {nuovaVersione && (
+            <button
+              onClick={() => {
+                setConfigTab('app');
+                go('config');
+              }}
+              className="rounded-[var(--radius-btn)] bg-accent-soft px-2.5 py-1 text-xs text-accent hover:underline"
+            >
+              Aggiornamento disponibile: {nuovaVersione}
+            </button>
+          )}
           {meta && !meta.aiConfigured && (
             <button
               onClick={() => go('config')}
@@ -107,7 +137,10 @@ export default function App() {
 
         {visited.has('config') && (
           <div hidden={view !== 'config'}>
-            <ConfigView onProvidersChanged={() => setMetaToken((n) => n + 1)} />
+            <ConfigView
+              onProvidersChanged={() => setMetaToken((n) => n + 1)}
+              openTab={configTab}
+            />
           </div>
         )}
       </main>

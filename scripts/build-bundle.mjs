@@ -3,9 +3,10 @@
  *
  * Contenuto dello zip:
  *   node.exe                 build ufficiale Node per Windows x64
- *   app/                     server+CLI compilati (tsc) + ui/dist + data/
+ *   app/                     server+CLI compilati (tsc) + ui/dist + data/ + scripts/tray.ps1
  *   node_modules/            solo dipendenze di produzione, senza browser Playwright
- *   HouseFinder.bat          avvia il server e apre il browser
+ *   HouseFinder.vbs          avvio normale: nessuna console, icona nell'area di notifica
+ *   HouseFinder-console.bat  avvio con finestra, per vedere gli errori quando qualcosa non parte
  *   install-browsers.bat     scarica Chromium (abilita Subito/Immobiliare/Idealista/Facebook)
  *   .env.example, README.md, LICENSE
  *
@@ -74,16 +75,34 @@ async function main() {
   if (!res.ok) throw new Error(`node.exe non scaricato: HTTP ${res.status} da ${NODE_EXE_URL}`);
   await pipeline(Readable.fromWeb(res.body), createWriteStream(join(STAGE, 'node.exe')));
 
+  step('Script non-TypeScript che tsc non copia');
+  // `tsc` emette solo i .ts: il .ps1 della tray va portato a mano, con lo stesso percorso
+  // relativo che ha nel repo (`src/server/tray.ts` lo cerca in `../../scripts/`).
+  await mkdir(join(APP, 'scripts'), { recursive: true });
+  await cp(join(ROOT, 'scripts', 'tray.ps1'), join(APP, 'scripts', 'tray.ps1'));
+
   step('Launcher e documentazione');
+  // Avvio normale: nessuna finestra, icona nell'area di notifica. Da lì si apre e si esce.
+  // `.vbs` è l'unico modo di lanciare un processo davvero senza console senza spedire un .exe
+  // nostro; il bootstrap (`.env`, `state/`) ora lo fa `serve.ts`, così vale per tutti i launcher.
   await writeFile(
-    join(STAGE, 'HouseFinder.bat'),
+    join(STAGE, 'HouseFinder.vbs'),
+    [
+      'Set sh = CreateObject("WScript.Shell")',
+      'Set fso = CreateObject("Scripting.FileSystemObject")',
+      'sh.CurrentDirectory = fso.GetParentFolderName(WScript.ScriptFullName)',
+      "sh.Run \"node.exe app\\scripts\\serve.js --tray --open\", 0, False",
+      '',
+    ].join('\r\n'),
+  );
+  // Avvio con console: serve quando qualcosa non parte e si vuole vedere l'errore subito,
+  // invece di andarlo a leggere in state\logs\house-finder.log.
+  await writeFile(
+    join(STAGE, 'HouseFinder-console.bat'),
     [
       '@echo off',
       'cd /d "%~dp0"',
-      'if not exist ".env" copy ".env.example" ".env" >nul',
-      'if not exist "state" mkdir "state"',
-      'start "" cmd /c "timeout /t 3 >nul & start "" http://localhost:3000"',
-      'node.exe app\\scripts\\serve.js',
+      'node.exe app\\scripts\\serve.js --open',
       'pause',
       '',
     ].join('\r\n'),

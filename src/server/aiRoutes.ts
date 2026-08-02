@@ -14,7 +14,7 @@ import {
   saveKey,
   setPrimary,
 } from '../ai/credentials.js';
-import { buildChainForTask } from '../ai/failover.js';
+import { buildChainForTask, modelsForTask } from '../ai/failover.js';
 import { penaltyScore } from '../ai/endpoint-health.js';
 import { refKey } from '../ai/providers/types.js';
 
@@ -132,6 +132,36 @@ export function createAiRouter(): Router {
       }
       res.status(502).json({ error: (e as Error).message });
     }
+  });
+
+  /**
+   * I modelli fra cui si può scegliere, per compito.
+   *
+   * Esiste perché il motore sceglieva benissimo da solo ma non lo raccontava a nessuno: il
+   * consigliato era già calcolato e buttato via, e l'unico modo di fissare un modello era la
+   * variabile d'ambiente `AI_MODEL`. `auto` viene sempre riportato, anche quando un pin c'è: è
+   * su quello che si ripiega, e senza saperlo la voce "Automatico" non vuol dire niente.
+   */
+  r.get('/models', async (_req, res) => {
+    const provider = primaryProvider();
+    if (!isConfigured(provider)) {
+      return res.json({ configured: false, provider: null, tasks: {} });
+    }
+    const [reasoning, vision] = await Promise.all([
+      modelsForTask('reasoning'),
+      specOf(provider).caps.vision
+        ? modelsForTask('vision')
+        : Promise.resolve({ pinned: null, auto: null, candidates: [] }),
+    ]);
+    res.json({
+      configured: true,
+      provider,
+      publishesHealth: specOf(provider).caps.health === 'openrouter',
+      tasks: {
+        reasoning: { label: 'Valutazione degli annunci', ...reasoning },
+        vision: { label: 'Lettura delle foto', ...vision },
+      },
+    });
   });
 
   r.put('/primary', async (req, res) => {

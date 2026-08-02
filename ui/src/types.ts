@@ -72,6 +72,8 @@ export interface ChannelMeta {
 }
 
 export interface Meta {
+  /** Serve a riconoscere che dopo un aggiornamento a rispondere è il server NUOVO. */
+  version: string;
   aiConfigured: boolean;
   aiProvider: string;
   imapConfigured: boolean;
@@ -135,6 +137,55 @@ export interface ProviderInfo {
 export interface ProvidersState {
   primary: string;
   providers: ProviderInfo[];
+}
+
+export interface ModelChoice {
+  id: string;
+  /** Fra i primi della catena: è il gruppo "Consigliati per questo compito". */
+  recommended: boolean;
+  free: boolean;
+  /** `null` dove il provider non pubblica la salute (tutti tranne OpenRouter). */
+  uptime5m: number | null;
+  penalty: number;
+}
+
+export interface TaskModels {
+  label: string;
+  /** Il modello fissato a mano; `null` = automatico. */
+  pinned: string | null;
+  /** Chi sceglierebbe da solo. Arriva sempre, anche con un pin attivo. */
+  auto: string | null;
+  candidates: ModelChoice[];
+}
+
+export interface ModelsState {
+  configured: boolean;
+  provider: string | null;
+  publishesHealth?: boolean;
+  tasks: { reasoning?: TaskModels; vision?: TaskModels };
+}
+
+export interface UpdateInfo {
+  current: string;
+  latest: string | null;
+  updateAvailable: boolean;
+  releaseUrl: string | null;
+  notes: string;
+  /** `false` = GitHub non ha risposto. Diverso da "sei aggiornato": va detto. */
+  checked: boolean;
+  /** `false` fuori dal bundle: dai sorgenti si aggiorna con `git pull`. */
+  frozen: boolean;
+  detail: string | null;
+}
+
+export type UpdateStep = 'idle' | 'download' | 'verify' | 'replace' | 'restart' | 'done' | 'error';
+
+export interface UpdateProgress {
+  step: UpdateStep;
+  pct: number;
+  detail: string | null;
+  ts: number | null;
+  busy: boolean;
 }
 
 export interface SaveKeyResult {

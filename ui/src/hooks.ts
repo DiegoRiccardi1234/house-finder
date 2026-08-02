@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api';
-import type { Meta, StoredListing, ListingFilters, ListingStatus, SseEvent } from './types';
+import type {
+  Meta,
+  StoredListing,
+  ListingFilters,
+  ListingStatus,
+  SseEvent,
+  UpdateInfo,
+  UpdateProgress,
+} from './types';
 
 /** Ritarda un valore: evita una fetch per ogni tasto digitato nella ricerca. */
 export function useDebounced<T>(value: T, ms: number): T {
@@ -33,6 +41,138 @@ export function useMeta(reloadToken = 0): { meta: Meta | null; error: string | n
     };
   }, [reloadToken]);
   return { meta, error };
+}
+
+/** Quanto si aspetta che il server torni su dopo la sostituzione dei file. */
+const RIAVVIO_TIMEOUT_MS = 300_000;
+const SONDAGGIO_MS = 2_000;
+
+export type UpdatePhase = 'idle' | 'running' | 'error' | 'timeout';
+
+/**
+ * Il controllo aggiornamenti e il pulsante che lo applica.
+ *
+ * Il pezzo delicato è **come si capisce che l'aggiornamento è finito**. Aspettare che "qualcuno
+ * risponda" non basta: il server vecchio resta in piedi ancora un istante dopo aver risposto, e su
+ * una macchina veloce lo scambio avviene fra due sondaggi — in Job Finder, chi ha la macchina
+ * veloce aspetta i cinque minuti pieni e poi legge "non riuscito" di un aggiornamento riuscito.
+ * Qui si confronta la **versione** riportata da `/api/meta`, che per questo esiste.
+ */
+export function useUpdate(): {
+  info: UpdateInfo | null;
+  progress: UpdateProgress | null;
+  phase: UpdatePhase;
+  message: string | null;
+  check: (force?: boolean) => void;
+  start: () => Promise<void>;
+  unlock: () => Promise<void>;
+} {
+  const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
+  const [phase, setPhase] = useState<UpdatePhase>('idle');
+  const [message, setMessage] = useState<string | null>(null);
+  const [token, setToken] = useState(0);
+  const [force, setForce] = useState(false);
+  const versioneIniziale = useRef<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    api
+      .checkUpdate(force)
+      .then((i) => {
+        if (!vivo) return;
+        setInfo(i);
+        versioneIniziale.current ??= i.current;
+      })
+      .catch(() => {
+        /* il controllo aggiornamenti non deve mai rompere la pagina */
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [token, force]);
+
+  // Un aggiornamento può essere partito da un'altra scheda: lo stato vero sta sul server.
+  useEffect(() => {
+    api
+      .updateProgress()
+      .then((p) => {
+        setProgress(p);
+        if (p.busy) setPhase('running');
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (phase !== 'running') return;
+    const scadenza = Date.now() + RIAVVIO_TIMEOUT_MS;
+    let fermo = false;
+
+    const giro = async (): Promise<void> => {
+      if (fermo) return;
+      try {
+        const p = await api.updateProgress();
+        setProgress(p);
+        if (p.step === 'error') {
+          setPhase('error');
+          setMessage(p.detail ?? 'Aggiornamento non riuscito.');
+          return;
+        }
+      } catch {
+        // Il server si sta spegnendo o è già giù: è il momento previsto, non un guasto.
+      }
+      try {
+        const meta = await api.meta();
+        if (versioneIniziale.current && meta.version !== versioneIniziale.current) {
+          window.location.reload();
+          return;
+        }
+      } catch {
+        /* server ancora giù */
+      }
+      if (Date.now() > scadenza) {
+        setPhase('timeout');
+        setMessage(
+          'Il programma non è tornato su entro cinque minuti. Il diario è in ' +
+            'state\\logs\\updater.log.',
+        );
+        return;
+      }
+      setTimeout(() => void giro(), SONDAGGIO_MS);
+    };
+    void giro();
+    return () => {
+      fermo = true;
+    };
+  }, [phase]);
+
+  const check = useCallback((f = false) => {
+    setForce(f);
+    setToken((n) => n + 1);
+  }, []);
+
+  const start = useCallback(async () => {
+    setMessage(null);
+    const res = await api.startUpdate();
+    if (res.status === 202) {
+      setPhase('running');
+      setProgress({ step: 'download', pct: 1, detail: 'avvio', ts: Date.now(), busy: true });
+      return;
+    }
+    const body = (await res.json().catch(() => ({}))) as { detail?: string; error?: string };
+    setPhase('error');
+    setMessage(body.detail ?? body.error ?? `Errore HTTP ${res.status}.`);
+  }, []);
+
+  /** Sblocca un aggiornamento rimasto appeso: senza, il pulsante resta morto per due minuti. */
+  const unlock = useCallback(async () => {
+    await api.clearUpdateLock().catch(() => {});
+    setPhase('idle');
+    setMessage(null);
+    setToken((n) => n + 1);
+  }, []);
+
+  return { info, progress, phase, message, check, start, unlock };
 }
 
 export function useListings(filters: ListingFilters, refreshToken = 0) {
