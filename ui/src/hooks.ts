@@ -8,6 +8,8 @@ import type {
   SseEvent,
   UpdateInfo,
   UpdateProgress,
+  JobId,
+  JobState,
 } from './types';
 
 /** Ritarda un valore: evita una fetch per ogni tasto digitato nella ricerca. */
@@ -41,6 +43,64 @@ export function useMeta(reloadToken = 0): { meta: Meta | null; error: string | n
     };
   }, [reloadToken]);
   return { meta, error };
+}
+
+/**
+ * Un lavoro lungo avviato da un pulsante: accesso a Facebook, installazione dei browser.
+ *
+ * Si interroga il server invece di tenere lo stato nella pagina, così un ricaricamento a metà —
+ * o una seconda scheda aperta — vede la stessa cosa. Lo stato iniziale si legge sempre: se il
+ * lavoro era già partito prima che la pagina si aprisse, il pulsante deve mostrarsi occupato.
+ */
+export function useJob(id: JobId): {
+  state: JobState | null;
+  busy: boolean;
+  start: (call: () => Promise<Response>) => Promise<void>;
+} {
+  const [state, setState] = useState<JobState | null>(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    let vivo = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const giro = async (): Promise<void> => {
+      try {
+        const s = await api.job(id);
+        if (!vivo) return;
+        setState(s);
+        if (s.running) timer = setTimeout(() => void giro(), 1500);
+      } catch {
+        /* server irraggiungibile: si riprova al prossimo avvio */
+      }
+    };
+    void giro();
+    return () => {
+      vivo = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [id, tick]);
+
+  const start = useCallback(
+    async (call: () => Promise<Response>) => {
+      const res = await call();
+      if (res.status !== 202) {
+        const body = (await res.json().catch(() => ({}))) as { detail?: string; error?: string };
+        setState({
+          running: false,
+          startedAt: null,
+          finishedAt: new Date().toISOString(),
+          lines: [],
+          outcome: 'error',
+          message: body.detail ?? body.error ?? `Errore HTTP ${res.status}.`,
+        });
+        return;
+      }
+      setTick((n) => n + 1);
+    },
+    [],
+  );
+
+  return { state, busy: state?.running === true, start };
 }
 
 /** Quanto si aspetta che il server torni su dopo la sostituzione dei file. */

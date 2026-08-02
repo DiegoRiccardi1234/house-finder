@@ -114,8 +114,15 @@ recovery path, since it is exactly what the updater does.
 
 ### 🔑 Configuration
 
-Everything is in `.env` (see `.env.example`): IMAP host/user/password, `OPENROUTER_API_KEY`, optional
-Telegram notifications (off by default — the dashboard is the output).
+**Everything is in the interface — no terminal, no editing files.** *Config* holds the mailbox
+credentials (with a real connection test), the AI provider keys and the model choice, the Facebook
+sign-in, the search criteria and zones, and a button to install the browsers. Nothing there requires
+a shell, which is the point: the app is meant to be usable by someone who unzipped it and
+double-clicked.
+
+`.env` still works and is read as a fallback (see `.env.example`): IMAP host/user/password,
+`OPENROUTER_API_KEY`, optional Telegram notifications (off by default — the dashboard is the
+output). Anything set in the UI wins over it.
 
 Search config lives in `data/` and can be edited by hand or from the **Config** tab:
 
@@ -285,8 +292,15 @@ resta sempre una via di recupero valida, perché è esattamente quello che fa l'
 
 ### 🔑 Configurazione
 
-Tutto in `.env` (vedi `.env.example`): host/utente/password IMAP, `OPENROUTER_API_KEY`, notifiche
-Telegram opzionali (spente di default — l'output è la dashboard).
+**Tutto si fa dall'interfaccia — niente terminale, niente file da modificare.** In *Config* stanno le
+credenziali della casella email (con prova di connessione vera), le key dei provider AI e la scelta
+del modello, l'accesso a Facebook, i criteri di ricerca e le zone, e un pulsante per installare i
+browser. Niente lì dentro richiede una riga di comando, ed è il punto: l'app deve essere usabile da
+chi ha estratto uno zip e ha fatto doppio click.
+
+Il `.env` funziona ancora e viene letto come ripiego (vedi `.env.example`): host/utente/password
+IMAP, `OPENROUTER_API_KEY`, notifiche Telegram opzionali (spente di default — l'output è la
+dashboard). Quello che imposti nella UI vince su di lui.
 
 La config di ricerca sta in `data/`, modificabile a mano o dal tab **Config**:
 

@@ -12,13 +12,16 @@ import { FB_STATE_PATH } from '../config/facebook.js';
 import { configReadPath, localConfigPath } from '../config/paths.js';
 import { imageHeaders, isAllowedImageHost, normalizeImageUrl } from '../core/img-fetch.js';
 import { THUMBS_DIR, THUMB_URL_PREFIX, thumbContentType } from '../core/thumbs.js';
-import { chromium } from 'playwright';
 import { createAiRouter } from './aiRoutes.js';
 import { primaryProvider } from '../ai/credentials.js';
 import { buildStats } from './stats.js';
 import { RunManager, RunBusyError } from './runManager.js';
 import { SearchesSchema, FbConfigSchema, StatusSchema, RunBodySchema } from './schemas.js';
 import { createUpdateRouter, type UpdateDeps } from './updateRoutes.js';
+import { createSetupRouter } from './setupRoutes.js';
+import { JobManager } from './jobs.js';
+import { browsersInstalled } from './browsers.js';
+import { mailConfigured } from '../config/mail.js';
 import { APP_VERSION } from '../version.js';
 
 type RunPipelineFn = (
@@ -58,7 +61,7 @@ const wrap = (fn: AsyncHandler) => (req: Request, res: Response, next: (e?: unkn
   Promise.resolve(fn(req, res)).catch(next);
 
 function imapConfigured(): boolean {
-  return !!(process.env.IMAP_USER && process.env.IMAP_PASS);
+  return mailConfigured();
 }
 
 /** Filtra e ordina i record per la GET /api/listings. */
@@ -104,17 +107,6 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
     return fallback;
   }
 }
-/**
- * I binari dei browser NON sono nel bundle di release (~400 MB) e possono mancare anche dopo un
- * `npm install`. `executablePath()` restituisce il path calcolato anche quando il file non c'è.
- */
-function browsersInstalled(): boolean {
-  try {
-    return existsSync(chromium.executablePath());
-  } catch {
-    return false;
-  }
-}
 
 async function writeFileSafe(path: string, content: string): Promise<void> {
   await writeFileAtomic(path, content); // tmp+rename+.bak: niente file di config troncati
@@ -129,6 +121,7 @@ export function createApp(deps: AppDeps): Express {
   const readCfg = (k: ConfigKey): string => deps.configPaths?.[k] ?? configReadPath(CONFIG_FILES[k]);
   const writeCfg = (k: ConfigKey): string => deps.configPaths?.[k] ?? localConfigPath(CONFIG_FILES[k]);
   const runManager = new RunManager();
+  const jobs = new JobManager();
   // Solo `scripts/serve.ts` ha in mano l'`http.Server`, quindi solo lui sa spegnersi davvero.
   // Nei test non serve: si vuole verificare che l'endpoint risponda, non che il runner muoia.
   const shutdown =
@@ -142,8 +135,10 @@ export function createApp(deps: AppDeps): Express {
     const fbSessionExists = existsSync(FB_STATE_PATH);
     const imap = imapConfigured();
     const browser = browsersInstalled();
-    // Senza browser i canali scraper fallirebbero al primo click: meglio dirlo qui che in uno stack trace.
-    const needsBrowser = browser ? '' : 'browser non installato (npx playwright install chromium)';
+    // Senza browser i canali scraper fallirebbero al primo click: meglio dirlo qui che in uno stack
+    // trace. Il messaggio indica il pulsante, non un comando: questa riga la legge chi ha scaricato
+    // uno zip e non ha nessun terminale da aprire.
+    const needsBrowser = browser ? '' : 'browser mancanti — installali da Config → App';
     res.json({
       // La versione qui non è decorazione: dopo un aggiornamento la pagina deve capire che a
       // risponderle è il server NUOVO. Aspettare "qualcuno risponde" non basta — il vecchio resta
@@ -157,7 +152,12 @@ export function createApp(deps: AppDeps): Express {
       fbSessionExists,
       browsersInstalled: browser,
       channels: [
-        { id: 'email', label: 'Portali (email)', available: imap, reason: imap ? '' : 'IMAP non configurato' },
+        {
+          id: 'email',
+          label: 'Portali (email)',
+          available: imap,
+          reason: imap ? '' : 'casella email non configurata — impostala da Config → Email',
+        },
         { id: 'subito', label: 'Subito', available: browser, reason: needsBrowser },
         { id: 'immobiliare', label: 'Immobiliare (diretto)', available: browser, reason: needsBrowser },
         { id: 'idealista', label: 'Idealista (diretto)', available: browser, reason: needsBrowser },
@@ -165,7 +165,11 @@ export function createApp(deps: AppDeps): Express {
           id: 'facebook',
           label: 'Facebook',
           available: fbSessionExists && browser,
-          reason: !browser ? needsBrowser : fbSessionExists ? '' : 'sessione FB assente',
+          reason: !browser
+            ? needsBrowser
+            : fbSessionExists
+              ? ''
+              : 'nessuna sessione — accedi da Config → Gruppi FB',
         },
       ],
     });
@@ -217,6 +221,7 @@ export function createApp(deps: AppDeps): Express {
   });
 
   app.use('/api/ai', createAiRouter());
+  app.use('/api', createSetupRouter(jobs));
   app.use(
     '/api/update',
     createUpdateRouter({

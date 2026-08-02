@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-02
+
+### Added
+
+- **Nothing needs a terminal any more.** Three things still lived outside the interface, and from
+  the downloadable bundle — where there is no npm — one of them was not merely awkward but
+  impossible.
+  - **Facebook sign-in from the UI.** *Config → Gruppi FB* opens a real browser window and lets you
+    sign in by hand. Two-factor is not an obstacle here, and that is precisely why this beats the
+    old shortcut that reused a Brave profile: the code is typed by the person, not guessed by the
+    app — and it works for anyone, not only for someone who has that browser with the account
+    already signed in. The card also shows *which* account is connected and until when its cookies
+    are valid, so "is the session still good?" stops being a guess.
+  - **Mailbox credentials in the UI.** *Config → Email*, with a real connection test on save. The AI
+    keys were pasted into the interface while the mail password lived in `.env` — a text file you
+    had to open in Notepad, which from a downloaded bundle is the same barrier as a command to
+    type, only better disguised. Same rule as the AI keys: the password never travels back to the
+    browser, and an empty field means "unchanged", not "delete it".
+  - **Browser installation from a button**, in *Config → App*. Chromium is ~400 MB and ships
+    separately; without it four channels out of five are unavailable.
+- Long operations report progress through a small job API (`GET /api/jobs/:id`), so reloading the
+  page mid-way — or watching from a second tab — shows the same state.
+
+### Changed
+
+- The "channel unavailable" messages name a place in the interface instead of a shell command:
+  they are read by people who have no terminal to open.
+- Mail settings resolve file-then-environment, like the AI keys, so what you type in the UI wins
+  over what is in `.env`.
+
 ## [1.3.0] - 2026-08-02
 
 ### Added

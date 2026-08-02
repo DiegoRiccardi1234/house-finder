@@ -1,5 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
+import { mailConfigured, mailSettings } from '../../config/mail.js';
 
 export interface EmailMessage {
   uid: number;
@@ -9,31 +10,31 @@ export interface EmailMessage {
   text: string;
 }
 
-function reqEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`${name} mancante (vedi .env)`);
-  return v;
-}
-
 /** Casella email letta via IMAP (default: Virgilio). */
 export class Mailbox {
   private client: ImapFlow;
   private folder: string;
 
   constructor() {
-    this.folder = process.env.IMAP_FOLDER ?? 'INBOX';
+    // Le credenziali arrivano da `data/local/mail.json` se ci sono, altrimenti dal `.env`:
+    // vedi `src/config/mail.ts`. Prima erano solo env, e dal bundle non c'era modo di scriverle.
+    const s = mailSettings();
+    if (!s.user || !s.pass) {
+      throw new Error('Credenziali email mancanti: impostale in Config → Email.');
+    }
+    this.folder = s.folder;
     this.client = new ImapFlow({
-      host: process.env.IMAP_HOST ?? 'in.virgilio.it',
-      port: Number(process.env.IMAP_PORT ?? '993'),
+      host: s.host,
+      port: s.port,
       secure: true,
-      auth: { user: reqEnv('IMAP_USER'), pass: reqEnv('IMAP_PASS') },
+      auth: { user: s.user, pass: s.pass },
       logger: false,
     });
   }
 
   /** True se le credenziali IMAP sono configurate. */
   static configured(): boolean {
-    return !!(process.env.IMAP_USER && process.env.IMAP_PASS);
+    return mailConfigured();
   }
 
   async open(): Promise<void> {
