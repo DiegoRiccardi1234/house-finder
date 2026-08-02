@@ -165,6 +165,35 @@ export interface ModelsState {
   tasks: { reasoning?: TaskModels; vision?: TaskModels };
 }
 
+export interface SearchRow {
+  id: string;
+  city: string;
+  label: string;
+  maxPrice: number;
+  minRooms?: number;
+  maxRooms?: number;
+}
+
+export interface CityZones {
+  city: string;
+  keep: string[];
+  avoid: string[];
+}
+
+export interface Profile {
+  searches: SearchRow[];
+  zones: CityZones[];
+  musts: string[];
+  notes: string;
+}
+
+export interface ProfileState {
+  profile: Profile;
+  /** Il testo generato che legge l'AI: si mostra, non si modifica. */
+  generated: string;
+  configured: boolean;
+}
+
 export interface MailConfig {
   host: string;
   port: number;
