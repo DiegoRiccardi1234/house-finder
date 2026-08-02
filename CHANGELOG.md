@@ -6,6 +6,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-08-02
+
+### Changed
+
+- **The folder now has three entries and one of them is obviously the app.** `HouseFinder.exe`,
+  `LEGGIMI.txt`, and `app\` holding everything else — `node.exe`, `node_modules`, the compiled
+  server, the interface. It used to open on eleven entries including `package-lock.json`, with the
+  thing to click being a `.vbs` sitting next to a `node.exe` that looked just as clickable. Someone
+  opening that folder had no way to know where to start. It is the shape of the two sibling
+  projects, where PyInstaller hides everything in `_internal\`.
+- The launcher is a real executable with its own icon, compiled at build time by the C# compiler
+  that ships inside Windows — no toolchain to install, and if it is ever missing the build falls
+  back to the old `.vbs` rather than producing nothing. The icon is drawn during the build, so
+  there is still no binary in the repository.
+- `install-browsers.bat` is gone: it is a button now. The console launcher survives as
+  `app\avvio-con-console.bat`, for when something refuses to start.
+
+### Fixed
+
+- The bundle build quotes its arguments. `shell: true` on Windows pastes them together unquoted,
+  and this project lives under a path with a space in it — the resulting errors talk about
+  anything but the real cause, and cost three separate detours in one afternoon.
+
 ## [1.4.1] - 2026-08-02
 
 ### Fixed

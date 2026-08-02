@@ -15,7 +15,12 @@
  * funzione che valga qualcosa: in Trip Finder quattro difetti su cinque erano stati corretti
  * usando un processo finto al posto dell'app, e il quinto stava esattamente lì.
  *
- * Uso: `npm run try:update [-- --reuse]`
+ * Uso: `npm run try:update [-- --reuse] [-- --da vX.Y.Z]`
+ *
+ * `--da <tag>` installa il pacchetto **vero** di quella release, scaricato da GitHub, e ci fa
+ * sopra l'aggiornamento. È il modo di provare un cambio di struttura: a eseguire l'aggiornamento
+ * è l'aggiornatore di ALLORA, quello che non si può più correggere, e nessuna simulazione scritta
+ * oggi ne riprodurrebbe fedelmente il comportamento.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -137,8 +142,29 @@ async function main(): Promise<void> {
   await mkdir(estratto, { recursive: true });
   await mkdir(nuovo, { recursive: true });
 
-  passo('Installo la versione attuale');
-  estrai(ZIP, estratto);
+  // Da quale pacchetto parte l'installazione: quello appena costruito, o quello vero di una
+  // release passata quando si sta provando un cambio di struttura.
+  const iDa = process.argv.indexOf('--da');
+  const tagDa = iDa >= 0 ? process.argv[iDa + 1] : null;
+  let zipInstallato = ZIP;
+  if (tagDa) {
+    passo(`Scarico il pacchetto vero della ${tagDa}`);
+    zipInstallato = join(base, `${tagDa}.zip`);
+    const url = execFileSync(
+      'gh',
+      ['release', 'view', tagDa, '--json', 'assets', '--jq', '.assets[0].url'],
+      { encoding: 'utf8' },
+    ).trim();
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'HouseFinder', Accept: 'application/octet-stream' },
+      redirect: 'follow',
+    });
+    if (!res.ok) throw new Error(`download della ${tagDa} fallito: HTTP ${res.status}`);
+    await writeFile(zipInstallato, Buffer.from(await res.arrayBuffer()));
+  }
+
+  passo('Installo la versione di partenza');
+  estrai(zipInstallato, estratto);
   // L'installazione è la cartella DENTRO lo zip, non quella in cui si è estratto: è la stessa
   // cosa che fa una persona che apre l'archivio e trascina fuori `HouseFinder`.
   const install = await radiceEstratta(estratto);
@@ -197,7 +223,12 @@ async function main(): Promise<void> {
     HOUSE_FINDER_TRAY: '',
     HOUSE_FINDER_UPDATED: '',
   };
-  let app: ChildProcess | null = spawn(join(install, 'node.exe'), ['app/scripts/serve.js'], {
+  // Dalla 1.5.0 `node.exe` sta in `app/`; prima stava in cima. Si parte con quello che c'è.
+  const nodeExe = (await esiste(join(install, 'app', 'node.exe')))
+    ? join(install, 'app', 'node.exe')
+    : join(install, 'node.exe');
+  console.log(`   avvio con ${nodeExe.slice(install.length + 1)}`);
+  let app: ChildProcess | null = spawn(nodeExe, ['app/scripts/serve.js'], {
     cwd: install,
     env,
     stdio: 'inherit',
@@ -230,6 +261,7 @@ async function main(): Promise<void> {
     passo('Controllo cosa è cambiato e cosa no');
     const prove: Array<[string, boolean]> = [
       ['i file nuovi sono arrivati', await esiste(join(install, 'PROVA-AGGIORNAMENTO.txt'))],
+      ['la struttura nuova è in posto', await esiste(join(install, 'app', 'node.exe'))],
       [
         "l'archivio è intatto",
         (await readFile(join(install, 'state', 'listings.json'), 'utf8')).includes(SENTINELLA),
