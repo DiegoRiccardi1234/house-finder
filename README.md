@@ -117,9 +117,14 @@ recovery path, since it is exactly what the updater does.
 
 **Everything is in the interface — no terminal, no editing files.** *Config* holds the mailbox
 credentials (with a real connection test), the AI provider keys and the model choice, the Facebook
-sign-in, the search criteria and zones, and a button to install the browsers. Nothing there requires
-a shell, which is the point: the app is meant to be usable by someone who unzipped it and
-double-clicked.
+sign-in, the search itself, and a button to install the browsers. Nothing there requires a shell,
+which is the point: the app is meant to be usable by someone who unzipped it and double-clicked.
+
+Setting up the search is one sentence: **describe what you are looking for** — *"a furnished
+two-room flat in Turin under €700"* — and the fields fill themselves, ready to be corrected. The
+city comes from a list of the 109 provincial capitals, so a search that the portals cannot open
+simply cannot be saved; neighbourhoods are ticked from a list rather than typed from memory, drawn
+from the bundled data where it exists and from the model where it does not.
 
 `.env` still works and is read as a fallback (see `.env.example`): IMAP host/user/password,
 `OPENROUTER_API_KEY`, optional Telegram notifications (off by default — the dashboard is the
@@ -297,9 +302,15 @@ resta sempre una via di recupero valida, perché è esattamente quello che fa l'
 
 **Tutto si fa dall'interfaccia — niente terminale, niente file da modificare.** In *Config* stanno le
 credenziali della casella email (con prova di connessione vera), le key dei provider AI e la scelta
-del modello, l'accesso a Facebook, i criteri di ricerca e le zone, e un pulsante per installare i
-browser. Niente lì dentro richiede una riga di comando, ed è il punto: l'app deve essere usabile da
-chi ha estratto uno zip e ha fatto doppio click.
+del modello, l'accesso a Facebook, la ricerca, e un pulsante per installare i browser. Niente lì
+dentro richiede una riga di comando, ed è il punto: l'app deve essere usabile da chi ha estratto uno
+zip e ha fatto doppio click.
+
+Impostare la ricerca è una frase: **descrivi cosa cerchi** — *"bilocale arredato a Torino sotto
+700"* — e i campi si riempiono da soli, pronti da correggere. La città si sceglie da un elenco di
+109 capoluoghi, così una ricerca che i portali non saprebbero aprire non è nemmeno salvabile; i
+quartieri si spuntano invece di scriverli a memoria, presi dagli elenchi inclusi dove ci sono e
+dal modello dove non ci sono.
 
 Il `.env` funziona ancora e viene letto come ripiego (vedi `.env.example`): host/utente/password
 IMAP, `OPENROUTER_API_KEY`, notifiche Telegram opzionali (spente di default — l'output è la
