@@ -3,11 +3,7 @@ import { SUBITO_IMG_RULE } from '../core/img-fetch.js';
 import { gotoResilient, assertNotBlocked } from './page-utils.js';
 import { readNextData } from './nextdata.js';
 
-// Percorso di ricerca per città (affitto appartamenti). Confermato dal vivo.
-const CITY_PATH: Record<string, string> = {
-  torino: 'annunci-piemonte/affitto/appartamenti/torino/torino/',
-  bari: 'annunci-puglia/affitto/appartamenti/bari/bari/',
-};
+import { cityPath } from '../config/cities.js';
 
 // --- mappatura item Subito (__NEXT_DATA__.props.pageProps.initialState.items.originalList) ---
 
@@ -96,7 +92,9 @@ export const subito: Source = {
   name: 'subito',
 
   buildUrl(p) {
-    const base = `https://www.subito.it/${CITY_PATH[p.city]}`;
+    // `cityPath` solleva se la città non è nell'elenco: prima qui nasceva
+    // `https://www.subito.it/undefined`, cioè una scansione che gira e non trova mai niente.
+    const base = `https://www.subito.it/${cityPath(p.city, 'subito')}`;
     const q = new URLSearchParams({ order: 'datedesc' }); // più recenti
     if (p.maxPrice) {
       q.set('ps', '0');

@@ -2,14 +2,11 @@ import type { BrowserContext } from 'playwright';
 import type { Listing, Source } from '../core/types.js';
 import { gotoResilient, autoScroll, assertNotBlocked } from './page-utils.js';
 import { matches } from '../core/match.js';
+import { cityPath, isKnownCity } from '../config/cities.js';
 
 // Idealista è server-rendered (NO __NEXT_DATA__): si parsa il DOM.
 // Card = article.item; id = data-element-id (numerico, == id nelle mail /immobili/<id>/).
-// Percorso per città: <città>-<città> (comune-provincia). Torino verificato dal vivo.
-const CITY_PATH: Record<string, string> = {
-  torino: 'affitto-case/torino-torino/',
-  bari: 'affitto-case/bari-bari/',
-};
+// Percorso per città: <comune>-<provincia>, composto da `src/config/cities.ts`.
 
 // La lista dà solo uno snippet troncato: per gli annunci in target apriamo la pagina dettaglio
 // per il testo completo. Cap per non moltiplicare i caricamenti (headed, ~3s l'uno).
@@ -46,9 +43,11 @@ function zoneFromTitle(title: string): string | null {
     .map((p) => p.trim())
     .filter(Boolean);
   if (parts.length < 2) return null;
-  const last = parts[parts.length - 1].toLowerCase();
-  if (last === 'torino' || last === 'bari') return parts[parts.length - 2] ?? null;
-  return parts[parts.length - 1];
+  // Era un confronto con due nomi scritti a mano: su una qualsiasi altra città la zona diventava
+  // il nome della città stessa. Ora si chiede all'elenco.
+  const last = parts[parts.length - 1] ?? '';
+  if (isKnownCity(last.toLowerCase().replace(/\s+/g, '-'))) return parts[parts.length - 2] ?? null;
+  return last;
 }
 
 /** Mappa una card grezza in Listing. Puro: unit-test in test/idealista.test.ts. */
@@ -100,7 +99,7 @@ export const idealista: Source = {
   name: 'idealista',
 
   buildUrl(p) {
-    const base = `https://www.idealista.it/${CITY_PATH[p.city]}`;
+    const base = `https://www.idealista.it/${cityPath(p.city, 'idealista')}`;
     const price = p.maxPrice ? `con-prezzo_${p.maxPrice}/` : '';
     return `${base}${price}?ordine=pubblicazione-desc`;
   },

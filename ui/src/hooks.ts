@@ -10,6 +10,7 @@ import type {
   UpdateProgress,
   JobId,
   JobState,
+  RunEsito,
 } from './types';
 
 /** Ritarda un valore: evita una fetch per ogni tasto digitato nella ricerca. */
@@ -297,6 +298,7 @@ export function useListings(filters: ListingFilters, refreshToken = 0) {
 export function useRunStream(onDone: () => void) {
   const [lines, setLines] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
+  const [summary, setSummary] = useState<RunEsito | null>(null);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
@@ -312,7 +314,15 @@ export function useRunStream(onDone: () => void) {
       if (ev.type === 'log') setLines((l) => [...l, ev.line]);
       else if (ev.type === 'done') {
         setRunning(false);
-        setLines((l) => [...l, '✅ Run conclusa.']);
+        // Il riepilogo arrivava e finiva nel nulla: l'unica traccia di una ricerca era una riga
+        // di log. Chi la lanciava non sapeva quanti annunci fossero arrivati, né dove guardarli.
+        const r = ev.summary?.results ?? [];
+        setSummary({
+          nuovi: r.reduce((n, x) => n + (x.fresh ?? 0), 0),
+          visti: r.reduce((n, x) => n + (x.unique ?? 0), 0),
+          canali: r.length,
+        });
+        setLines((l) => [...l, '✅ Ricerca conclusa.']);
         onDoneRef.current();
       } else if (ev.type === 'error') {
         setRunning(false);
@@ -330,22 +340,24 @@ export function useRunStream(onDone: () => void) {
 
   const start = useCallback(async (channels: string[]) => {
     setLines([]);
+    setSummary(null);
     let r: Response;
     try {
       r = await api.startRun(channels);
     } catch (e) {
-      setLines([`❌ Impossibile avviare la run (server raggiungibile?): ${(e as Error).message}`]);
+      setLines([`❌ Il server non risponde: ${(e as Error).message}. Riavvia l'app e riprova.`]);
       return;
     }
     if (r.status === 202) {
       setRunning(true);
     } else if (r.status === 409) {
       setRunning(true);
-      setLines(['⚠️ Una run è già in corso — mi aggancio al log.']);
+      setLines(['⚠️ Una ricerca era già in corso: mi aggancio a quella.']);
     } else {
-      setLines([`Errore avvio run (HTTP ${r.status}).`]);
+      // Un codice HTTP non dice niente a chi legge: si dice cosa fare.
+      setLines([`❌ La ricerca non è partita. Riprova; se insiste, riavvia l'app.`]);
     }
   }, []);
 
-  return { lines, running, start };
+  return { lines, running, summary, start };
 }

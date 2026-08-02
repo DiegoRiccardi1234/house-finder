@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api';
-import type { AiHealth, Meta, SearchProfile, Stats } from '../../types';
+import type { AiHealth, Meta, Profile, Stats } from '../../types';
 import { Alert } from '../../ui/Alert';
 import { SearchSummary } from './SearchSummary';
 import { PersonalStats } from './PersonalStats';
@@ -21,44 +21,38 @@ export function ProfileView({
   onGoToRun: () => void;
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [criteria, setCriteria] = useState('');
-  const [searches, setSearches] = useState<SearchProfile[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [health, setHealth] = useState<AiHealth | null>(null);
   const [error, setError] = useState('');
 
+  /**
+   * Le tre schede si caricano **separatamente**.
+   *
+   * Prima era un solo `Promise.all` di quattro chiamate: se una qualsiasi falliva spariva
+   * l'intera schermata, statistiche comprese, sostituita da un errore. Una card che non carica
+   * deve togliere di mezzo sé stessa, non le altre.
+   */
   useEffect(() => {
     let alive = true;
-    Promise.all([
-      api.stats(),
-      api.getCriteria().then((c) => c.content),
-      api.getSearches(),
-      api.aiHealth(),
-    ])
-      .then(([s, c, se, h]) => {
-        if (!alive) return;
-        setStats(s);
-        setCriteria(c);
-        setSearches(se);
-        setHealth(h);
-        setError('');
-      })
-      .catch((e: Error) => alive && setError(e.message));
+    api.stats().then((s) => alive && setStats(s)).catch((e: Error) => alive && setError(e.message));
+    // La ricerca si legge dal profilo strutturato, la stessa fonte che modifica l'editor. Prima
+    // si rileggeva il markdown generato e lo si ri-parsava con delle regex: due viste della
+    // stessa cosa, che infatti davano due conteggi diversi di quartieri.
+    api.getProfile().then((s) => alive && setProfile(s.profile)).catch(() => {});
+    api.aiHealth().then((h) => alive && setHealth(h)).catch(() => {});
     return () => {
       alive = false;
     };
   }, [refreshToken]);
 
-  if (error) {
-    return (
-      <Alert tone="danger" title="Profilo non disponibile">
-        {error}. Verifica che il server sia acceso e ricarica la pagina.
-      </Alert>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-5">
-      <SearchSummary criteria={criteria} searches={searches} onEdit={onEditSearch} />
+      {error && (
+        <Alert tone="danger" title="Statistiche non disponibili">
+          {error}. Verifica che il server sia acceso e ricarica la pagina.
+        </Alert>
+      )}
+      <SearchSummary profile={profile} onEdit={onEditSearch} />
       <PersonalStats stats={stats} channels={meta?.channels ?? []} onGoToRun={onGoToRun} />
       <AiStatus health={health} onConfigure={onGoToProviders} />
     </div>

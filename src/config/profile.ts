@@ -217,6 +217,12 @@ export function loadProfile(): Profile {
 
 /** Ricostruisce il profilo dai due file storici. Le zone sono per città quando si capisce. */
 export function deriveFromLegacy(searches: SearchRow[], criteria: string): Profile {
+  // Nessuna ricerca = installazione nuova, e il `criteria.md` che si sta leggendo è il file di
+  // esempio. Ricavarne irrinunciabili e note vorrebbe dire aprire la configurazione con caselle
+  // già spuntate e un testo che l'utente non ha scritto — decisioni prese al posto suo, per di
+  // più partendo da una casa che non è la sua.
+  if (searches.length === 0) return { ...EMPTY_PROFILE };
+
   const cities = Array.from(new Set(searches.map((s) => s.city)));
   const zones: CityZones[] = [];
 

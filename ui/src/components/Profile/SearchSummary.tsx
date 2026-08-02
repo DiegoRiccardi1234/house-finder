@@ -1,59 +1,36 @@
-import type { SearchProfile } from '../../types';
+import type { Profile } from '../../types';
 import { Badge } from '../../ui/Badge';
 import { Button } from '../../ui/Button';
 import { Card, CardHeader } from '../../ui/Card';
 import { Kicker } from '../../ui/Kicker';
+import { useCities } from '../CityPicker';
 
 /**
- * `data/criteria.md` è markdown libero: chi lo scrive non segue uno schema.
- * Il parser è quindi volutamente tollerante e, quando non riconosce la struttura,
- * lo dichiara invece di mostrare conteggi inventati.
+ * Il riassunto di cosa cerchi.
+ *
+ * Leggeva il markdown **generato** e lo ri-parsava con delle regex per contare quartieri e
+ * irrinunciabili: un giro struttura → testo → espressioni regolari, con due viste della stessa
+ * cosa che potevano divergere. E divergevano: qui comparivano "29 quartieri in whitelist" mentre
+ * il profilo ne conteneva 15, perché il parser di questa card non sapeva attribuirli alle città.
+ *
+ * Ora legge la stessa fonte che modifica l'editor. Un dato, un posto.
  */
-export function parseZones(criteria: string): { keep: string[]; drop: string[]; parsed: boolean } {
-  const keep: string[] = [];
-  const drop: string[] = [];
-  const split = (s: string) =>
-    s
-      .split(/[,;·]/)
-      .map((x) => x.replace(/\((core|ok)\)/gi, '').trim())
-      .filter((x) => x.length > 1 && x.length < 40);
-
-  for (const m of criteria.matchAll(/TIENI:\s*([^\n]*(?:\n(?!\s*(?:SCARTA|NO-GO|NOTE|-\s*[A-Z]))[^\n]*)*)/gi)) {
-    keep.push(...split(m[1]));
-  }
-  for (const m of criteria.matchAll(/SCARTA:\s*([^\n]*(?:\n(?!\s*(?:TIENI|NO-GO|NOTE|-\s*[A-Z]))[^\n]*)*)/gi)) {
-    drop.push(...split(m[1]));
-  }
-  const uniq = (a: string[]) => Array.from(new Set(a));
-  return { keep: uniq(keep), drop: uniq(drop), parsed: keep.length > 0 || drop.length > 0 };
-}
-
-function mustHaves(criteria: string): string[] {
-  const m = criteria.match(/MUST-HAVE[^\n]*:?\s*\n((?:\s*-\s*[^\n]+\n?)+)/i);
-  if (!m) return [];
-  return m[1]
-    .split('\n')
-    .map((l) => l.replace(/^\s*-\s*/, '').trim())
-    .filter(Boolean)
-    // Via la spiegazione fra parentesi e la punteggiatura finale: nel chip serve l'etichetta.
-    .map((l) => l.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/[.;]+\s*$/, '').trim())
-    .filter(Boolean);
-}
-
-const CITY_LABEL: Record<string, string> = { torino: 'Torino', bari: 'Bari' };
-
 export function SearchSummary({
-  criteria,
-  searches,
+  profile,
   onEdit,
 }: {
-  criteria: string;
-  searches: SearchProfile[];
+  profile: Profile | null;
   onEdit: () => void;
 }) {
-  const zones = parseZones(criteria);
-  const musts = mustHaves(criteria);
-  const cities = Array.from(new Set(searches.map((s) => s.city)));
+  const cities = useCities();
+  const label = (slug: string): string => cities.find((c) => c.slug === slug)?.label ?? slug;
+
+  const searches = profile?.searches ?? [];
+  const zones = profile?.zones ?? [];
+  const musts = profile?.musts ?? [];
+  const keep = zones.flatMap((z) => z.keep);
+  const avoid = zones.flatMap((z) => z.avoid);
+  const citta = Array.from(new Set(searches.map((s) => s.city)));
 
   return (
     <Card>
@@ -68,23 +45,24 @@ export function SearchSummary({
       />
 
       {searches.length === 0 ? (
-        <div className="p-4 text-sm text-muted">
-          Nessun profilo di ricerca configurato. Aggiungine uno in <b>Config → Ricerche/zone</b>.
+        <div className="flex flex-wrap items-center gap-3 p-4 text-sm text-muted">
+          Non hai ancora detto cosa cerchi.
+          <Button size="sm" variant="primary" onClick={onEdit}>
+            Dillo ora
+          </Button>
         </div>
       ) : (
         <div className="grid gap-4 p-4 md:grid-cols-3">
           <div>
             <Kicker as="div">città</Kicker>
-            <p className="mt-1 text-lg text-ink">
-              {cities.map((c) => CITY_LABEL[c] ?? c).join(' · ')}
-            </p>
+            <p className="mt-1 text-lg text-ink">{citta.map(label).join(' · ')}</p>
           </div>
 
           <div className="md:col-span-2">
-            <Kicker as="div">budget per taglio</Kicker>
+            <Kicker as="div">cosa cerchi</Kicker>
             <ul className="mt-1 space-y-0.5 text-sm text-ink-soft">
-              {searches.map((s) => (
-                <li key={s.id} className="flex justify-between gap-4 tabular-nums">
+              {searches.map((s, i) => (
+                <li key={s.id || i} className="flex justify-between gap-4 tabular-nums">
                   <span className="truncate">{s.label}</span>
                   <span className="shrink-0 font-semibold">≤ {s.maxPrice} €</span>
                 </li>
@@ -107,18 +85,20 @@ export function SearchSummary({
 
           <div className="md:col-span-3">
             <Kicker as="div">zone</Kicker>
-            {zones.parsed ? (
-              <p className="mt-1 text-sm text-ink-soft">
-                <b className="text-ok">{zones.keep.length}</b> quartieri in whitelist ·{' '}
-                <b className="text-danger">{zones.drop.length}</b> esclusi
-                {zones.keep.length > 0 && (
-                  <span className="block text-xs text-faint">{zones.keep.slice(0, 8).join(' · ')}…</span>
-                )}
+            {keep.length + avoid.length === 0 ? (
+              <p className="mt-1 text-sm text-faint">
+                Nessun quartiere scelto: la zona non filtra, conta tutto il resto.
               </p>
             ) : (
-              <p className="mt-1 text-sm text-faint">
-                Criteri in formato libero: non ci sono elenchi <code>TIENI:</code>/<code>SCARTA:</code>{' '}
-                da contare. Va benissimo — l'AI legge comunque tutto il testo.
+              <p className="mt-1 text-sm text-ink-soft">
+                <b className="text-ok">{keep.length}</b> da tenere ·{' '}
+                <b className="text-danger">{avoid.length}</b> da scartare
+                {keep.length > 0 && (
+                  <span className="block text-xs text-faint">
+                    {keep.slice(0, 8).join(' · ')}
+                    {keep.length > 8 ? '…' : ''}
+                  </span>
+                )}
               </p>
             )}
           </div>

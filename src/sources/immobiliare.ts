@@ -2,11 +2,7 @@ import type { Listing, Source } from '../core/types.js';
 import { gotoResilient, assertNotBlocked } from './page-utils.js';
 import { readNextData } from './nextdata.js';
 
-// Percorso di ricerca per città (affitto case). Confermato dal vivo.
-const CITY_PATH: Record<string, string> = {
-  torino: 'affitto-case/torino/',
-  bari: 'affitto-case/bari/',
-};
+import { cityPath } from '../config/cities.js';
 
 interface ImmProperty {
   rooms?: string | number;
@@ -79,7 +75,7 @@ export const immobiliare: Source = {
   name: 'immobiliare',
 
   buildUrl(p) {
-    const base = `https://www.immobiliare.it/${CITY_PATH[p.city]}`;
+    const base = `https://www.immobiliare.it/${cityPath(p.city, 'immobiliare')}`;
     const q = new URLSearchParams({ criterio: 'dataModifica', ordine: 'desc' });
     if (p.maxPrice) q.set('prezzoMassimo', String(p.maxPrice));
     return `${base}?${q.toString()}`;

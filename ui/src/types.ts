@@ -74,6 +74,8 @@ export interface ChannelMeta {
 export interface Meta {
   /** Serve a riconoscere che dopo un aggiornamento a rispondere è il server NUOVO. */
   version: string;
+  /** Ha già detto cosa cerca? Il server lo dichiarava da subito e nessuno lo leggeva. */
+  profileConfigured: boolean;
   aiConfigured: boolean;
   aiProvider: string;
   imapConfigured: boolean;
@@ -165,6 +167,12 @@ export interface ModelsState {
   tasks: { reasoning?: TaskModels; vision?: TaskModels };
 }
 
+export interface CityOption {
+  slug: string;
+  label: string;
+  region: string;
+}
+
 export interface SearchRow {
   id: string;
   city: string;
@@ -172,6 +180,21 @@ export interface SearchRow {
   maxPrice: number;
   minRooms?: number;
   maxRooms?: number;
+}
+
+/** Cosa ha capito l'AI da una frase, prima che l'utente la confermi. */
+export interface AssistResult {
+  profile: Partial<Profile>;
+  /** Quello che nella frase non c'era: si chiede, non si inventa. */
+  missing: string[];
+  city: string | null;
+}
+
+export interface ZoneSuggestion {
+  city: string;
+  zones: string[];
+  source: 'incluso' | 'ai' | 'nessuna';
+  detail?: string;
 }
 
 export interface CityZones {
@@ -192,6 +215,8 @@ export interface ProfileState {
   /** Il testo generato che legge l'AI: si mostra, non si modifica. */
   generated: string;
   configured: boolean;
+  /** Righe incomplete non salvate: prima sparivano in silenzio. */
+  skipped?: string[];
 }
 
 export interface MailConfig {
@@ -263,9 +288,23 @@ export interface SearchProfile {
   maxRooms?: number;
 }
 
+/** Quello che il server manda a fine scansione, e che la pagina buttava via. */
+export interface RunSummary {
+  runId: string;
+  channels: string[];
+  results: Array<{ channel: string; collected: number; unique: number; fresh: number; errors: string[] }>;
+}
+
+/** Il riassunto in tre numeri, quelli che interessano a chi guarda. */
+export interface RunEsito {
+  nuovi: number;
+  visti: number;
+  canali: number;
+}
+
 export type SseEvent =
   | { type: 'log'; line: string }
-  | { type: 'done'; summary: unknown }
+  | { type: 'done'; summary: RunSummary }
   | { type: 'error'; message: string };
 
 export interface ListingFilters {

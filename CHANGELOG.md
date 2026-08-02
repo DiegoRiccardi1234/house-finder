@@ -6,6 +6,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-02
+
+### Fixed
+
+- **The city was free text, and the engine knew two cities.** Typing "Milano" saved without a
+  warning and the scraper then requested `https://www.subito.it/undefined` — no error, no listing,
+  no way to tell why. Cities are now a list of **109 provincial capitals** (`src/config/cities.ts`)
+  from which all three portals compose their own paths, and an unknown one stops the run with a
+  message instead of quietly producing a broken address.
+  The list is verified rather than hoped for: `npm run try:cities` asks every portal about every
+  city. It found six that did not exist — Subito ignores "e della Brianza", writes the town as
+  "reggio-nell-emilia" but the province as "reggio-emilia", and drops the "e" from Pesaro e Urbino.
+  Those five are now measured overrides; Carbonia was removed, because on Subito it does not exist
+  in any form and a city that finds nothing on one portal out of three should not be offered.
+
+### Added
+
+- **Describe what you are looking for, and the fields fill themselves.** In front of an empty form
+  the real question is not *how much do I want to spend*, it is *what am I supposed to type here*.
+  A sentence like "bilocale arredato a Torino sotto 700" is something anyone can produce. What the
+  model understands is **not saved**: it fills the fields below, which stay the truth and are
+  corrected by hand.
+- **Neighbourhoods are picked, not typed from memory.** An included list for the cities that have
+  one, the AI for the ones that do not; one click keeps a neighbourhood, two discards it, three
+  makes it indifferent. It used to be an empty box with a placeholder and no way of knowing what
+  the other options were — the thing that prompted this whole revision.
+- **"Tipo di casa"** replaces *Locali min* and *Locali max*: the section title promised a field
+  that did not exist, and translating "bilocale" into `2` and `2` was left to the reader.
+
+### Changed
+
+- The app opens where there is something to do. On a new installation it used to open on eight
+  filters above an empty archive — the right screen for someone who already has listings, the
+  worst for someone who has none yet.
+- Settings tabs mark what is still missing, warnings lead to the tab they talk about (the AI badge
+  used to land on the search screen), and two signposts that pointed at renamed tabs are gone.
+- Switching settings tabs no longer destroys unsaved work, and a failed save no longer replaces
+  the screen with a read error, taking the edits with it.
+- *Cerca* pre-selects the channels that are **ready** instead of e-mail — the one needing the most
+  setup outside the app — explains why the button is disabled, and shows how many listings arrived
+  with a link to them. The summary was already being sent by the server and thrown away.
+- A fresh installation no longer starts with must-haves already ticked and a notes field full of
+  text the user never wrote: those came from the example file, which is an example of the format,
+  not a starting configuration.
+- The Facebook channel filter now matches the listings it collects, which arrive under two
+  distinct channel ids and were therefore never found.
+- The profile card reads the structured search instead of re-parsing the generated markdown with
+  regular expressions — two views of the same thing, which is why one said "29 neighbourhoods" and
+  the other 15.
+
 ## [1.6.0] - 2026-08-02
 
 ### Changed
