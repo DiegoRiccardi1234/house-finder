@@ -95,9 +95,11 @@ test('profilo vuoto: si genera un testo vuoto, non uno scheletro di sezioni fint
   assert.equal(renderCriteria(vuoto).trim(), '');
 });
 
-test('senza ricerche non si inventano città', () => {
+test("senza ricerche l'installazione parte davvero da zero", () => {
   const p = deriveFromLegacy([], STORICO);
-  assert.equal(p.searches.length, 0);
-  // Le zone si tengono comunque: riscriverle a mano è la cosa più laboriosa del profilo.
-  assert.ok(p.zones.length > 0 || p.notes.length > 0);
+  // Nessuna ricerca vuol dire installazione nuova, e il `criteria.md` che si sta leggendo è il
+  // file di ESEMPIO. Ricavarne irrinunciabili, zone e note vorrebbe dire aprire la configurazione
+  // con caselle già spuntate e un testo mai scritto dall'utente — per giunta la ricerca di
+  // qualcun altro. È successo, e la prima impressione era "perché c'è già tutto compilato?".
+  assert.deepEqual(p, { searches: [], zones: [], musts: [], notes: '' });
 });

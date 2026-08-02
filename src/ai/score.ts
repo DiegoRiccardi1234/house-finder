@@ -261,8 +261,14 @@ function buildPrompt(listings: Listing[]): string {
   ].join('\n');
 }
 
-/** Estrae il primo blocco JSON da una risposta eventualmente "sporca". */
-function extractJson(raw: string): unknown {
+/**
+ * Estrae il primo blocco JSON da una risposta eventualmente "sporca".
+ *
+ * Esportata perché la usa anche `src/ai/ask.ts`: i modelli gratuiti antepongono preamboli e
+ * chiudono il JSON dentro un recinto markdown, e riscrivere questa tolleranza una seconda volta
+ * avrebbe voluto dire correggerne i difetti in due posti.
+ */
+export function extractJson(raw: string): unknown {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const body = fenced ? fenced[1] : raw;
   const start = body.indexOf('{');

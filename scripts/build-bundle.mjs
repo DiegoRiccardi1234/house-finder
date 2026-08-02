@@ -231,6 +231,9 @@ async function main() {
   for (const f of ['criteria.md', 'searches.json', 'facebook.json']) {
     await cp(join(ROOT, 'data', f), join(APP, 'data', f));
   }
+  // I quartieri già pronti: senza, la configurazione ricomincerebbe da un campo vuoto proprio
+  // nel punto che quel campo vuoto doveva togliere.
+  await cp(join(ROOT, 'data', 'zones'), join(APP, 'data', 'zones'), { recursive: true });
 
   // I .js emessi sono ESM: senza questo package.json Node li leggerebbe come CommonJS.
   await writeFile(join(APP, 'package.json'), JSON.stringify({ type: 'module' }, null, 2) + '\n');
@@ -297,6 +300,7 @@ async function main() {
     ['app', 'scripts', 'tray.ps1'],
     ['app', 'src', 'version.js'],
     ['app', 'ui', 'dist', 'index.html'],
+    ['app', 'data', 'zones', 'torino.json'],
     ['app', 'node_modules', 'express', 'package.json'],
     ['LEGGIMI.txt'],
   ]) {

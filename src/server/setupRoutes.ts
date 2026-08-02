@@ -1,6 +1,7 @@
 import { rm } from 'node:fs/promises';
 import { Router, type Request, type Response } from 'express';
 import { ImapFlow } from 'imapflow';
+import { CITIES, isKnownCity } from '../config/cities.js';
 import { FB_STATE_PATH } from '../config/facebook.js';
 import {
   invalidateMail,
@@ -135,6 +136,16 @@ export function createSetupRouter(jobs: JobManager): Router {
   // --- La tua ricerca -------------------------------------------------------------------------
 
   /**
+   * Le città fra cui si può scegliere.
+   *
+   * Esiste perché la schermata smetta di essere un campo di testo: scrivere una città che i
+   * portali non sanno aprire non deve essere possibile, non deve essere solo sconsigliato.
+   */
+  r.get('/cities', (_req, res) => {
+    res.json(CITIES.map((c) => ({ slug: c.slug, label: c.label, region: c.region })));
+  });
+
+  /**
    * Il profilo di ricerca, più il testo che ne viene generato per l'AI.
    *
    * `generated` torna al client di proposito: la schermata lo mostra in un blocco richiudibile,
@@ -154,16 +165,29 @@ export function createSetupRouter(jobs: JobManager): Router {
     }
 
     const searches: SearchRow[] = [];
+    const scartate: string[] = [];
     for (const raw of b.searches) {
       const s = raw as Partial<SearchRow>;
       const city = typeof s.city === 'string' ? s.city.trim().toLowerCase() : '';
       const label = typeof s.label === 'string' ? s.label.trim() : '';
       const maxPrice = Number(s.maxPrice);
-      if (!city || !label || !Number.isFinite(maxPrice) || maxPrice <= 0) continue;
+      // Una città fuori elenco non si salva: gli scraper non saprebbero aprirla e la scansione
+      // girerebbe a vuoto senza dire niente. Prima veniva accettata qualunque stringa.
+      if (city && !isKnownCity(city)) {
+        return res.status(400).json({
+          error: 'unknown_city',
+          city,
+          detail: `"${city}" non è fra le città disponibili. Scegline una dall'elenco.`,
+        });
+      }
+      if (!city || !label || !Number.isFinite(maxPrice) || maxPrice <= 0) {
+        if (city || label) scartate.push(label || city);
+        continue;
+      }
       searches.push({
-        // L'id finisce negli URL degli scraper e nei log: si ricava dall'etichetta, ma resta
-        // stabile se c'era già, altrimenti rinominare una ricerca ne creerebbe una nuova.
-        id: typeof s.id === 'string' && s.id ? s.id : slug(`${city}-${label}`),
+        // L'id compare nei log e nei messaggi d'errore. Si ricava dall'etichetta, che di solito
+        // comincia già con la città: anteporla di nuovo dava "bologna-bologna-bilocale".
+        id: typeof s.id === 'string' && s.id ? s.id : slug(label) || slug(city),
         city,
         label,
         maxPrice: Math.round(maxPrice),
@@ -194,7 +218,14 @@ export function createSetupRouter(jobs: JobManager): Router {
 
     await saveProfile(profile);
     invalidateProfile();
-    res.json({ profile, generated: renderCriteria(profile), configured: profileConfigured() });
+    res.json({
+      profile,
+      generated: renderCriteria(profile),
+      configured: profileConfigured(),
+      // Le righe lasciate a metà venivano buttate in silenzio: dopo il salvataggio sparivano e
+      // basta. Ora chi salva sa che cosa non è stato tenuto e perché.
+      ...(scartate.length ? { skipped: scartate } : {}),
+    });
   });
 
   // --- Posta ----------------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card, CardHeader } from '../ui/Card';
 import { Field, Input } from '../ui/Field';
+import { CityPicker } from './CityPicker';
 
 /**
  * I gruppi Facebook da seguire, come lista invece che come JSON.
@@ -101,13 +102,14 @@ export function FacebookGroups() {
               )}
             </Field>
             <Field label="Città">
+              {/* Era il terzo campo città a testo libero dell'app: "Torino" qui e "torino" nella
+                  ricerca erano due cose diverse, e nessuno lo diceva. */}
               {(a) => (
-                <Input
+                <CityPicker
                   {...a}
                   value={g.city}
-                  placeholder="torino"
-                  onChange={(e) =>
-                    setGroups(groups.map((x, j) => (j === i ? { ...x, city: e.target.value } : x)))
+                  onChange={(city) =>
+                    setGroups(groups.map((x, j) => (j === i ? { ...x, city } : x)))
                   }
                 />
               )}

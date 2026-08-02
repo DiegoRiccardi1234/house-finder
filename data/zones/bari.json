@@ -1,0 +1,33 @@
+{
+  "_comment": "Quartieri di Bari, dai più centrali ai più periferici. Servono a far spuntare invece che digitare: si sceglie quali tenere e quali scartare in Config → La tua ricerca.",
+  "zones": [
+    "Murat",
+    "Bari Vecchia",
+    "Madonnella",
+    "Libertà",
+    "Umbertino",
+    "Carrassi",
+    "San Pasquale",
+    "Picone",
+    "Poggiofranco",
+    "Quintino Sella",
+    "Japigia",
+    "Torre a Mare",
+    "San Girolamo",
+    "Fesca",
+    "Marconi",
+    "San Cataldo",
+    "Stanic",
+    "San Paolo",
+    "Santo Spirito",
+    "Palese",
+    "Catino",
+    "San Pio",
+    "Enziteto",
+    "CEP",
+    "Loseto",
+    "Ceglie del Campo",
+    "Carbonara",
+    "Santa Rita"
+  ]
+}

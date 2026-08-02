@@ -19,6 +19,7 @@ import { RunManager, RunBusyError } from './runManager.js';
 import { SearchesSchema, FbConfigSchema, StatusSchema, RunBodySchema } from './schemas.js';
 import { createUpdateRouter, type UpdateDeps } from './updateRoutes.js';
 import { createSetupRouter } from './setupRoutes.js';
+import { createAssistRouter } from './assistRoutes.js';
 import { JobManager } from './jobs.js';
 import { browsersInstalled } from './browsers.js';
 import { mailConfigured } from '../config/mail.js';
@@ -77,7 +78,12 @@ function queryListings(all: StoredListing[], q: Request['query']): StoredListing
   const sort = typeof q.sort === 'string' ? q.sort : 'score';
 
   let out = all.filter((r) => {
-    if (channel && r.channel !== channel) return false;
+    // Facebook arriva sotto due canali distinti (`fb-group`, `fb-marketplace`) ma nella UI è una
+    // voce sola: filtrando per uguaglianza non trovava mai niente. Le statistiche del Profilo li
+    // sommavano già, la lista no.
+    if (channel && !(channel === 'facebook' ? r.channel.startsWith('fb') : r.channel === channel)) {
+      return false;
+    }
     if (status && r.status !== status) return false;
     if (minScore > 0 && (r.ai == null || r.ai.score < minScore)) return false;
     if (arredato && r.fields?.arredato !== arredato) return false;
@@ -173,7 +179,7 @@ export function createApp(deps: AppDeps): Express {
             ? needsBrowser
             : fbSessionExists
               ? ''
-              : 'nessuna sessione — accedi da Config → Gruppi FB',
+              : 'nessuna sessione — accedi da Config → Facebook',
         },
       ],
     });
@@ -226,6 +232,7 @@ export function createApp(deps: AppDeps): Express {
 
   app.use('/api/ai', createAiRouter());
   app.use('/api', createSetupRouter(jobs));
+  app.use('/api', createAssistRouter());
   app.use(
     '/api/update',
     createUpdateRouter({

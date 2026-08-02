@@ -14,6 +14,8 @@ import type {
   MailConfig,
   Profile,
   ProfileState,
+  CityOption,
+  ZoneSuggestion,
   FbSession,
   JobId,
   JobState,
@@ -118,6 +120,15 @@ export const api = {
       async (r) => (await r.json()) as { ok: boolean; folder?: string; messages?: number; error?: string },
     ),
   forgetMail: () => fetch('/api/config/mail', { method: 'DELETE' }).then((r) => json<MailConfig>(r)),
+
+  cities: () => fetch('/api/cities').then((r) => json<CityOption[]>(r)),
+
+  /** Una frase → un profilo. Gli errori li legge il chiamante: hanno rimedi diversi. */
+  assistSearch: (text: string) =>
+    fetch('/api/assist/search', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ text }) }),
+
+  zoneSuggestions: (city: string) =>
+    fetch(`/api/assist/zones/${encodeURIComponent(city)}`).then((r) => json<ZoneSuggestion>(r)),
 
   getProfile: () => fetch('/api/config/profile').then((r) => json<ProfileState>(r)),
   putProfile: (p: Profile) =>

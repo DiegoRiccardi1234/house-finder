@@ -21,6 +21,9 @@ const NAV = [
 ] as const;
 
 export default function App() {
+  // Si apre dove c'è qualcosa da fare. Aprire su "Annunci" al primo avvio vuol dire presentare
+  // otto filtri sopra un archivio vuoto: la schermata giusta per chi ha già degli annunci, la
+  // peggiore per chi non ne ha ancora nessuno. La decisione si prende quando arriva `meta`.
   const [view, setView] = useState<View>('dashboard');
   const [metaToken, setMetaToken] = useState(0);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -35,6 +38,8 @@ export default function App() {
   // Quale scheda di Config aprire quando ci si arriva da un pulsante altrove. Si azzera dopo,
   // altrimenti la scelta di un momento resterebbe appiccicata a ogni visita successiva.
   const [configTab, setConfigTab] = useState<ConfigTab | null>(null);
+
+  const [inizioDeciso, setInizioDeciso] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -72,6 +77,14 @@ export default function App() {
     [go],
   );
 
+  // Una volta sola, al primo `meta`: se non ha ancora detto cosa cerca, si comincia da lì invece
+  // che da otto filtri sopra un archivio vuoto.
+  useEffect(() => {
+    if (!meta || inizioDeciso) return;
+    setInizioDeciso(true);
+    if (!meta.profileConfigured) apriConfig('search');
+  }, [meta, inizioDeciso, apriConfig]);
+
   // A run finita l'archivio è cambiato: prima `onDone` era un no-op e la lista restava vecchia.
   const onRunDone = useCallback(() => {
     setRefreshToken((n) => n + 1);
@@ -101,16 +114,39 @@ export default function App() {
               Aggiornamento disponibile: {nuovaVersione}
             </button>
           )}
+          {meta && !meta.profileConfigured && (
+            <button
+              onClick={() => apriConfig('search')}
+              className="rounded-[var(--radius-btn)] bg-warn-soft px-2.5 py-1 text-xs text-warn hover:underline"
+            >
+              Non hai ancora detto cosa cerchi
+            </button>
+          )}
+          {meta && !meta.browsersInstalled && (
+            <button
+              onClick={() => apriConfig('app')}
+              className="rounded-[var(--radius-btn)] bg-warn-soft px-2.5 py-1 text-xs text-warn hover:underline"
+            >
+              Browser mancanti
+            </button>
+          )}
           {meta && !meta.aiConfigured && (
             <button
-              onClick={() => go('config')}
+              /* Portava in Config senza scheda, cioè sulla ricerca: l'avviso parlava dell'AI e
+                 atterrava altrove. `apriConfig` esisteva già ed era usata in un punto su tre. */
+              onClick={() => apriConfig('providers')}
               className="rounded-[var(--radius-btn)] bg-warn-soft px-2.5 py-1 text-xs text-warn hover:underline"
             >
               Nessun provider AI configurato
             </button>
           )}
-          {meta && meta.aiConfigured && !meta.imapConfigured && (
-            <span className="text-xs text-faint">IMAP non configurato — canale email spento</span>
+          {meta && meta.aiConfigured && meta.profileConfigured && !meta.imapConfigured && (
+            <button
+              onClick={() => apriConfig('email')}
+              className="text-xs text-faint hover:underline"
+            >
+              Casella email non configurata
+            </button>
           )}
           <ThemeToggle />
         </div>
@@ -135,7 +171,7 @@ export default function App() {
 
         {visited.has('run') && (
           <div hidden={view !== 'run'}>
-            <RunPanel meta={meta} onDone={onRunDone} />
+            <RunPanel meta={meta} onDone={onRunDone} onVediAnnunci={() => go('dashboard')} />
           </div>
         )}
 

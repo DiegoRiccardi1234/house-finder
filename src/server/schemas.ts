@@ -1,8 +1,16 @@
 import { z } from 'zod';
+import { isKnownCity } from '../config/cities.js';
 
 /** Schemi di validazione per la config editabile dalla UI (PUT /api/config/*). */
 
-export const CitySchema = z.enum(['torino', 'bari']);
+/**
+ * Una città dell'elenco. Prima era `z.enum(['torino','bari'])`: giusto sui valori, ma da
+ * aggiornare a mano a ogni città aggiunta. Ora la verità sta in un posto solo.
+ */
+export const CitySchema = z
+  .string()
+  .min(1)
+  .refine(isKnownCity, { error: 'città non riconosciuta: scegline una dall\'elenco' });
 
 export const SearchProfileSchema = z.object({
   id: z.string().min(1),

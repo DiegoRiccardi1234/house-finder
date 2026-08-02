@@ -4,27 +4,45 @@ import type { CityZones, Profile, SearchRow } from '../types';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card, CardHeader } from '../ui/Card';
-import { Field, Input } from '../ui/Field';
+import { Field, Input, Select } from '../ui/Field';
 import { Kicker } from '../ui/Kicker';
 import { ChipList } from './ChipList';
+import { CityPicker, useCities } from './CityPicker';
+import { SearchAssist } from './SearchAssist';
+import { ZoneSuggest } from './ZoneSuggest';
 
 /**
- * "La tua ricerca": la schermata che sostituisce due editor di testo grezzo.
+ * «La tua ricerca».
  *
- * Prima, per dire all'app che cercavi un bilocale a Torino sotto i 750 euro, dovevi scrivere un
- * array JSON con `minRooms` e `maxRooms` in una casella di testo, e ripetere la stessa cosa a
- * parole in un markdown separato — tenendoli allineati a mano. Il tasto "Modifica" del profilo
- * atterrava lì sopra, ed è il motivo per cui sembrava rotto: funzionava, ma non portava da
- * nessuna parte utile.
+ * Nella versione precedente chiedeva: città (testo libero), un'etichetta da inventare, il prezzo,
+ * i locali minimi e i locali massimi. Cinque campi, di cui uno che rompeva il motore in silenzio
+ * se scritto male e due che pretendevano di tradurre "bilocale" in `2` e `2` da soli — mentre il
+ * titolo della sezione prometteva un campo "tipo di casa" che non esisteva.
  *
- * Il testo per l'AI adesso lo genera il server (`src/config/profile.ts`). Resta visibile in fondo,
- * in sola lettura: era l'unica cosa buona dell'editor di prima, e chi vuole controllare cosa
- * legge davvero il modello deve poterlo fare.
+ * Ora: descrivi a parole e i campi si riempiono, oppure scegli città e tipo da due menu. Le
+ * etichette si generano, i locali li imposta il tipo, i quartieri si spuntano.
  */
 
 const MUST_NOTI = ['Arredato', 'Prezzo entro il tetto', 'Ascensore', 'Balcone', 'Animali ammessi'];
 
-/** Unisce due liste di etichette senza doppioni, tenendo la forma già salvata dall'utente. */
+/** I tagli di casa, e cosa vogliono dire in numero di locali. */
+const TIPI = [
+  { id: 'stanza', label: 'Stanza singola', minRooms: 1, maxRooms: 1 },
+  { id: 'bilocale', label: 'Bilocale', minRooms: 2, maxRooms: 2 },
+  { id: 'trilocale', label: 'Trilocale', minRooms: 3, maxRooms: 3 },
+  { id: 'quattro', label: 'Quattro locali o più', minRooms: 4, maxRooms: undefined },
+  { id: 'condivisa', label: 'Casa da condividere', minRooms: 3, maxRooms: undefined },
+  { id: 'qualsiasi', label: 'Qualsiasi', minRooms: undefined, maxRooms: undefined },
+] as const;
+
+type TipoId = (typeof TIPI)[number]['id'];
+
+/** Dai locali salvati si risale al taglio: il profilo continua a contenere numeri, non nomi. */
+function tipoDi(r: SearchRow): TipoId {
+  const t = TIPI.find((x) => x.minRooms === r.minRooms && x.maxRooms === r.maxRooms);
+  return t?.id ?? 'qualsiasi';
+}
+
 function unisciSenzaDoppioni(base: string[], salvate: string[]): string[] {
   const out = [...salvate];
   for (const b of base) {
@@ -37,8 +55,14 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
   const [p, setP] = useState<Profile | null>(null);
   const [generato, setGenerato] = useState('');
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [errore, setErrore] = useState('');
+  const [msg, setMsg] = useState<{ tono: 'ok' | 'danger'; testo: string } | null>(null);
+  const [caricamento, setCaricamento] = useState('');
+  const cities = useCities();
+
+  const etichettaCitta = useCallback(
+    (slug: string) => cities.find((c) => c.slug === slug)?.label ?? slug,
+    [cities],
+  );
 
   const carica = useCallback(() => {
     api
@@ -47,7 +71,7 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
         setP(s.profile);
         setGenerato(s.generated);
       })
-      .catch((e: Error) => setErrore(e.message));
+      .catch((e: Error) => setCaricamento(e.message));
   }, []);
 
   useEffect(carica, [carica]);
@@ -57,10 +81,10 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
     [p?.searches],
   );
 
-  if (errore) {
+  if (caricamento) {
     return (
       <Alert tone="danger" title="Non riesco a leggere la tua ricerca">
-        {errore}. Controlla che il server sia acceso.
+        {caricamento}. Controlla che il server sia acceso, poi ricarica la pagina.
       </Alert>
     );
   }
@@ -68,8 +92,24 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
 
   const set = (patch: Partial<Profile>): void => setP({ ...p, ...patch });
 
+  /** L'etichetta si ricalcola da città e taglio: era un campo da inventare, non è più chiesta. */
+  const etichetta = (city: string, tipo: TipoId): string =>
+    `${etichettaCitta(city)} · ${TIPI.find((t) => t.id === tipo)?.label.toLowerCase() ?? 'casa'}`;
+
   const setRiga = (i: number, patch: Partial<SearchRow>): void =>
-    set({ searches: p.searches.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
+    set({
+      searches: p.searches.map((r, j) => {
+        if (j !== i) return r;
+        const next = { ...r, ...patch };
+        return { ...next, label: etichetta(next.city, tipoDi(next)) };
+      }),
+    });
+
+  const setTipo = (i: number, tipo: TipoId): void => {
+    const t = TIPI.find((x) => x.id === tipo);
+    if (!t) return;
+    setRiga(i, { minRooms: t.minRooms, maxRooms: t.maxRooms });
+  };
 
   const zonaDi = (city: string): CityZones =>
     p.zones.find((z) => z.city === city) ?? { city, keep: [], avoid: [] };
@@ -79,6 +119,20 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
     set({ zones: [...altre, { ...zonaDi(city), ...patch }] });
   };
 
+  /** Quello che l'AI ha capito riempie i campi; il resto di ciò che c'era non si butta via. */
+  const daAssistente = (parziale: Partial<Profile>): void => {
+    const searches = (parziale.searches ?? []).map((r) => ({
+      ...r,
+      label: r.label || etichetta(r.city, tipoDi(r)),
+    }));
+    setP({
+      searches: searches.length ? searches : p.searches,
+      zones: parziale.zones?.length ? parziale.zones : p.zones,
+      musts: parziale.musts?.length ? parziale.musts : p.musts,
+      notes: parziale.notes?.trim() ? parziale.notes : p.notes,
+    });
+  };
+
   async function salva(): Promise<void> {
     setBusy(true);
     setMsg(null);
@@ -86,10 +140,17 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
       const s = await api.putProfile(p as Profile);
       setP(s.profile);
       setGenerato(s.generated);
-      setMsg('Salvato.');
+      setMsg({
+        tono: 'ok',
+        testo: s.skipped?.length
+          ? `Salvato. Non ho tenuto ${s.skipped.length} riga/e incompleta/e.`
+          : 'Salvato.',
+      });
       onSaved?.();
     } catch (e) {
-      setErrore((e as Error).message);
+      // L'errore di scrittura NON sostituisce la schermata: le modifiche in corso restano dove
+      // sono. Prima finiva nella stessa variabile del caricamento e portava via tutto il lavoro.
+      setMsg({ tono: 'danger', testo: `Non sono riuscito a salvare: ${(e as Error).message}` });
     } finally {
       setBusy(false);
     }
@@ -99,10 +160,12 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
 
   return (
     <div className="flex flex-col gap-4">
+      <SearchAssist onFilled={daAssistente} />
+
       {nessunaRicerca && (
         <Alert tone="info" title="Non hai ancora detto cosa cerchi">
-          Aggiungi almeno una ricerca qui sotto: una città, che tipo di casa e quanto vuoi spendere
-          al massimo. Senza, la scansione non saprebbe dove guardare.
+          Descrivi la tua ricerca qui sopra, oppure aggiungila a mano qui sotto: città, che tipo di
+          casa e quanto vuoi spendere al massimo.
         </Alert>
       )}
 
@@ -113,21 +176,22 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
           action={
             <Button
               size="sm"
-              onClick={() =>
+              onClick={() => {
+                const city = citta[0] ?? '';
                 set({
                   searches: [
                     ...p.searches,
                     {
                       id: '',
-                      city: citta[0] ?? '',
-                      label: '',
+                      city,
+                      label: city ? etichetta(city, 'bilocale') : '',
                       maxPrice: 700,
                       minRooms: 2,
                       maxRooms: 2,
                     },
                   ],
-                })
-              }
+                });
+              }}
             >
               Aggiungi
             </Button>
@@ -137,26 +201,20 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
           {p.searches.map((r, i) => (
             <div
               key={i}
-              className="grid grid-cols-2 items-end gap-3 border-b border-hair pb-3 last:border-0 last:pb-0 md:grid-cols-[1fr_1.8fr_auto_auto_auto_auto]"
+              className="grid grid-cols-1 items-end gap-3 border-b border-hair pb-3 last:border-0 last:pb-0 md:grid-cols-[1.2fr_1.2fr_auto_auto]"
             >
               <Field label="Città">
-                {(a) => (
-                  <Input
-                    {...a}
-                    value={r.city}
-                    placeholder="torino"
-                    onChange={(e) => setRiga(i, { city: e.target.value })}
-                  />
-                )}
+                {(a) => <CityPicker {...a} value={r.city} onChange={(city) => setRiga(i, { city })} />}
               </Field>
-              <Field label="Come la chiami">
+              <Field label="Tipo di casa">
                 {(a) => (
-                  <Input
-                    {...a}
-                    value={r.label}
-                    placeholder="Torino · bilocale"
-                    onChange={(e) => setRiga(i, { label: e.target.value })}
-                  />
+                  <Select {...a} value={tipoDi(r)} onChange={(e) => setTipo(i, e.target.value as TipoId)}>
+                    {TIPI.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </Select>
                 )}
               </Field>
               <Field label="Max €/mese">
@@ -171,34 +229,6 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
                   />
                 )}
               </Field>
-              <Field label="Locali min">
-                {(a) => (
-                  <Input
-                    {...a}
-                    type="number"
-                    min={1}
-                    value={r.minRooms ?? ''}
-                    onChange={(e) =>
-                      setRiga(i, { minRooms: e.target.value ? Number(e.target.value) : undefined })
-                    }
-                    className="w-20"
-                  />
-                )}
-              </Field>
-              <Field label="Locali max">
-                {(a) => (
-                  <Input
-                    {...a}
-                    type="number"
-                    min={1}
-                    value={r.maxRooms ?? ''}
-                    onChange={(e) =>
-                      setRiga(i, { maxRooms: e.target.value ? Number(e.target.value) : undefined })
-                    }
-                    className="w-20"
-                  />
-                )}
-              </Field>
               <Button
                 size="sm"
                 variant="ghost"
@@ -210,7 +240,7 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
           ))}
           {nessunaRicerca && (
             <p className="text-sm text-muted">
-              Nessuna ricerca. Premi <b>Aggiungi</b> per cominciare.
+              Nessuna ricerca. Premi <b>Aggiungi</b>, oppure descrivila a parole qui sopra.
             </p>
           )}
         </div>
@@ -224,8 +254,6 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {/* Il confronto ignora le maiuscole: il file storico scriveva "ARREDATO" e la voce
-              predefinita "Arredato", e comparivano come due pulsanti diversi per la stessa cosa. */}
           {unisciSenzaDoppioni(MUST_NOTI, p.musts).map((m) => {
             const attivo = p.musts.some((x) => x.toLowerCase() === m.toLowerCase());
             return (
@@ -233,6 +261,7 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
                 key={m}
                 size="sm"
                 variant={attivo ? 'primary' : 'secondary'}
+                aria-pressed={attivo}
                 onClick={() =>
                   set({
                     musts: attivo
@@ -253,29 +282,38 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
           <div>
             <Kicker as="div">zone</Kicker>
             <p className="text-xs text-muted">
-              Filtro forte ma non assoluto: una casa ottima in una zona non elencata non viene
-              buttata via, viene segnalata. Lascia vuoto per non filtrare per quartiere.
+              Non filtrano da sole: entrano nei criteri e le pesa l'AI, quindi una casa ottima in
+              una zona che hai scartato viene segnalata invece che buttata via.
             </p>
           </div>
           {citta.map((c) => (
             <div key={c} className="flex flex-col gap-3 border-t border-hair pt-3 first:border-0 first:pt-0">
-              <h4 className="text-sm text-ink capitalize">{c}</h4>
-              <div className="grid gap-4 md:grid-cols-2">
-                <ChipList
-                  label="Tieni"
-                  tone="ok"
-                  values={zonaDi(c).keep}
-                  onChange={(keep) => setZona(c, { keep })}
-                  placeholder="Crocetta, Cit Turin…"
-                />
-                <ChipList
-                  label="Scarta"
-                  tone="danger"
-                  values={zonaDi(c).avoid}
-                  onChange={(avoid) => setZona(c, { avoid })}
-                  placeholder="Periferie, zone che non vuoi"
-                />
-              </div>
+              <h4 className="text-sm text-ink">{etichettaCitta(c)}</h4>
+              <ZoneSuggest
+                city={c}
+                keep={zonaDi(c).keep}
+                avoid={zonaDi(c).avoid}
+                onChange={(patch) => setZona(c, patch)}
+              />
+              <details className="text-xs text-muted">
+                <summary className="cursor-pointer">
+                  <Kicker>aggiungine altri a mano</Kicker>
+                </summary>
+                <div className="mt-2 grid gap-4 md:grid-cols-2">
+                  <ChipList
+                    label="Tieni"
+                    tone="ok"
+                    values={zonaDi(c).keep}
+                    onChange={(keep) => setZona(c, { keep })}
+                  />
+                  <ChipList
+                    label="Scarta"
+                    tone="danger"
+                    values={zonaDi(c).avoid}
+                    onChange={(avoid) => setZona(c, { avoid })}
+                  />
+                </div>
+              </details>
             </div>
           ))}
         </Card>
@@ -295,7 +333,7 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
           onChange={(e) => set({ notes: e.target.value })}
           spellCheck={false}
           aria-label="Altro, in parole tue"
-          className="h-40 w-full rounded-[var(--radius-card)] border border-line bg-surface-hi p-3 text-sm text-ink"
+          className="h-32 w-full rounded-[var(--radius-card)] border border-line bg-surface-hi p-3 text-sm text-ink"
         />
       </Card>
 
@@ -303,10 +341,12 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
         <Button variant="primary" loading={busy} onClick={() => void salva()}>
           Salva
         </Button>
-        {msg && <span className="text-xs text-ok">{msg}</span>}
-        <span className="text-xs text-faint">
-          Salvato in <code>data/local/</code>: resta su questo computer.
-        </span>
+        {msg && (
+          <span className={msg.tono === 'ok' ? 'text-xs text-ok' : 'text-sm text-danger'}>
+            {msg.testo}
+          </span>
+        )}
+        <span className="text-xs text-faint">Resta su questo computer.</span>
       </div>
 
       <details className="text-sm text-muted">

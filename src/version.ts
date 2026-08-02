@@ -9,7 +9,7 @@
  *
  * Al bump vanno aggiornati tutti e tre, più la sezione del CHANGELOG (è il corpo della release).
  */
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '1.7.0';
 
 /** Il repository da cui si scaricano gli aggiornamenti. */
 export const GITHUB_REPO = 'DiegoRiccardi1234/house-finder';

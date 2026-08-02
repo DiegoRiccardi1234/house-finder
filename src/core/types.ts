@@ -1,6 +1,13 @@
 import type { BrowserContext } from 'playwright';
 
-export type City = 'torino' | 'bari';
+/**
+ * Lo slug di una città dell'elenco (`src/config/cities.ts`).
+ *
+ * Era un'unione di due letterali, `'torino' | 'bari'`, che raccontava una verità del motore ma
+ * bloccava il tipo su due valori mentre l'elenco ne ha 107. La validazione vera è a runtime, dove
+ * arriva il dato: `cityPath()` solleva su una città che i portali non sanno aprire.
+ */
+export type City = string;
 
 /** Un profilo di ricerca: cosa cerco, dove, entro che prezzo. */
 export interface SearchProfile {

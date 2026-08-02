@@ -44,10 +44,38 @@ export function ConfigView({
   meta?: Meta | null;
 }) {
   const [tab, setTab] = useState<ConfigTab>('search');
+  /**
+   * Le schede si montano alla prima visita e poi restano vive, nascoste.
+   *
+   * Prima erano rendering condizionale: cambiare scheda **smontava il componente** e le modifiche
+   * non salvate sparivano senza chiedere niente. `App.tsx` fa così da sempre, con tanto di
+   * commento sul perché; qui la stessa regola era stata dimenticata.
+   */
+  const [viste, setViste] = useState<Set<ConfigTab>>(new Set(['search']));
+  const vai = (t: ConfigTab): void => {
+    setTab(t);
+    setViste((prev) => (prev.has(t) ? prev : new Set(prev).add(t)));
+  };
 
   useEffect(() => {
-    if (openTab) setTab(openTab);
+    if (openTab) vai(openTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openTab]);
+
+  /**
+   * Un pallino sulle schede che aspettano ancora qualcosa.
+   *
+   * L'ordine dei prerequisiti esisteva solo nella testa di chi ha scritto il codice: la ricerca
+   * serve per sapere dove guardare, i browser per quattro canali su cinque, la chiave AI per
+   * avere un voto. `Tabs` sapeva già mostrare un badge e non lo usava nessuno.
+   */
+  const tabsConBadge = TABS.map((t) => {
+    const manca =
+      (t.id === 'search' && meta && !meta.profileConfigured) ||
+      (t.id === 'providers' && meta && !meta.aiConfigured) ||
+      (t.id === 'app' && meta && !meta.browsersInstalled);
+    return manca ? { ...t, badge: '•' } : t;
+  });
 
   const [danger, setDanger] = useState<Danger>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
@@ -73,29 +101,38 @@ export function ConfigView({
 
   return (
     <div className="flex flex-col gap-4">
-      <Tabs items={TABS} value={tab} onChange={setTab} label="Sezioni di configurazione" />
+      <Tabs items={tabsConBadge} value={tab} onChange={vai} label="Sezioni di configurazione" />
 
-      {tab === 'search' && <SearchEditor onSaved={onProvidersChanged} />}
+      {viste.has('search') && (
+        <div hidden={tab !== 'search'}>
+          <SearchEditor onSaved={onProvidersChanged} />
+        </div>
+      )}
 
-      {tab === 'email' && <MailPanel onChanged={onProvidersChanged} />}
+      {viste.has('email') && (
+        <div hidden={tab !== 'email'}>
+          <MailPanel onChanged={onProvidersChanged} />
+        </div>
+      )}
 
-      {tab === 'facebook' && (
-        <div className="flex flex-col gap-4">
+      {viste.has('facebook') && (
+        <div hidden={tab !== 'facebook'} className="flex flex-col gap-4">
           {/* La sessione sta sopra l'elenco: senza accesso, i gruppi non si possono leggere. */}
           <FacebookSession onChanged={onProvidersChanged} />
           <FacebookGroups />
         </div>
       )}
 
-      {tab === 'providers' && (
-        <div className="flex flex-col gap-4">
-          <ModelPicker onChanged={onProvidersChanged} />
+      {viste.has('providers') && (
+        <div hidden={tab !== 'providers'} className="flex flex-col gap-4">
+          {/* La key prima del modello: senza, la scelta del modello è solo un avviso. */}
           <AiProvidersPanel onChanged={onProvidersChanged} />
+          <ModelPicker onChanged={onProvidersChanged} />
         </div>
       )}
 
-      {tab === 'app' && (
-        <div className="flex flex-col gap-4">
+      {viste.has('app') && (
+        <div hidden={tab !== 'app'} className="flex flex-col gap-4">
           <UpdatePanel />
           <BrowsersPanel meta={meta ?? null} onChanged={onProvidersChanged} />
 
