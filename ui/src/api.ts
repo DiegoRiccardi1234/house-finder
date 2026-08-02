@@ -8,6 +8,9 @@ import type {
   AiHealth,
   ProvidersState,
   SaveKeyResult,
+  ModelsState,
+  UpdateInfo,
+  UpdateProgress,
 } from './types';
 
 async function json<T>(r: Response): Promise<T> {
@@ -49,6 +52,18 @@ export const api = {
       headers: jsonHeaders,
       body: JSON.stringify(body),
     }).then((r) => json<SaveKeyResult>(r)),
+
+  aiModels: () => fetch('/api/ai/models').then((r) => json<ModelsState>(r)),
+
+  checkUpdate: (force = false) =>
+    fetch(`/api/update/check${force ? '?force=1' : ''}`).then((r) => json<UpdateInfo>(r)),
+
+  updateProgress: () => fetch('/api/update/progress').then((r) => json<UpdateProgress>(r)),
+
+  /** Risponde `202` e continua per conto suo: da lì in poi si segue `updateProgress`. */
+  startUpdate: () => fetch('/api/update/install', { method: 'POST', headers: jsonHeaders, body: '{}' }),
+
+  clearUpdateLock: () => fetch('/api/update/lock', { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
 
   setPrimaryProvider: (body: { provider: string; model?: string; visionModel?: string }) =>
     fetch('/api/ai/primary', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(body) }).then((r) =>

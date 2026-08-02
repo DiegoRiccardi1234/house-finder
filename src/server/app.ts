@@ -18,6 +18,8 @@ import { primaryProvider } from '../ai/credentials.js';
 import { buildStats } from './stats.js';
 import { RunManager, RunBusyError } from './runManager.js';
 import { SearchesSchema, FbConfigSchema, StatusSchema, RunBodySchema } from './schemas.js';
+import { createUpdateRouter, type UpdateDeps } from './updateRoutes.js';
+import { APP_VERSION } from '../version.js';
 
 type RunPipelineFn = (
   channels: ChannelId[],
@@ -30,6 +32,15 @@ export interface AppDeps {
   runPipeline?: RunPipelineFn;
   /** Override per i test (default: i file reali sotto `data/`). */
   configPaths?: { criteria: string; searches: string; facebook: string };
+  /** Dove vivono lucchetto, diario e download dell'aggiornamento (default: `state/`). */
+  stateDir?: string;
+  /**
+   * Spegnimento ordinato, fornito da `scripts/serve.ts` (che è l'unico ad avere in mano
+   * l'`http.Server`). Lo usano l'icona nella tray e l'aggiornamento.
+   */
+  onShutdown?: () => void;
+  /** Override per i test dell'aggiornamento: evita di parlare con GitHub. */
+  checkUpdate?: UpdateDeps['check'];
 }
 
 type ConfigKey = 'criteria' | 'searches' | 'facebook';
@@ -118,6 +129,10 @@ export function createApp(deps: AppDeps): Express {
   const readCfg = (k: ConfigKey): string => deps.configPaths?.[k] ?? configReadPath(CONFIG_FILES[k]);
   const writeCfg = (k: ConfigKey): string => deps.configPaths?.[k] ?? localConfigPath(CONFIG_FILES[k]);
   const runManager = new RunManager();
+  // Solo `scripts/serve.ts` ha in mano l'`http.Server`, quindi solo lui sa spegnersi davvero.
+  // Nei test non serve: si vuole verificare che l'endpoint risponda, non che il runner muoia.
+  const shutdown =
+    deps.onShutdown ?? (() => console.warn('[server] spegnimento richiesto ma non collegato'));
 
   const app = express();
   app.use(express.json());
@@ -130,6 +145,12 @@ export function createApp(deps: AppDeps): Express {
     // Senza browser i canali scraper fallirebbero al primo click: meglio dirlo qui che in uno stack trace.
     const needsBrowser = browser ? '' : 'browser non installato (npx playwright install chromium)';
     res.json({
+      // La versione qui non è decorazione: dopo un aggiornamento la pagina deve capire che a
+      // risponderle è il server NUOVO. Aspettare "qualcuno risponde" non basta — il vecchio resta
+      // su un istante dopo aver risposto, e su una macchina veloce lo scambio avviene fra due
+      // sondaggi. Job Finder non espone la versione e infatti la sua pagina, a volte, non si
+      // ricarica mai.
+      version: APP_VERSION,
       aiConfigured: aiConfigured(),
       aiProvider: primaryProvider(),
       imapConfigured: imap,
@@ -196,6 +217,30 @@ export function createApp(deps: AppDeps): Express {
   });
 
   app.use('/api/ai', createAiRouter());
+  app.use(
+    '/api/update',
+    createUpdateRouter({
+      stateDir: deps.stateDir ?? 'state',
+      onShutdown: () => shutdown(),
+      check: deps.checkUpdate,
+    }),
+  );
+
+  /**
+   * Spegnimento richiesto dall'icona nella tray.
+   *
+   * Si risponde e basta: la chiusura vera avviene DOPO, fuori da questo handler. Awaitarla qui
+   * significherebbe chiedere al server di chiudersi mentre sta servendo la richiesta che glielo
+   * chiede — in Trip Finder l'equivalente sollevava, l'eccezione veniva ingoiata, e il programma
+   * non si spegneva affatto.
+   */
+  app.post('/api/system/shutdown', (req, res) => {
+    if (!req.is('application/json')) {
+      return res.status(415).json({ error: 'Content-Type application/json richiesto' });
+    }
+    res.status(202).json({ ok: true });
+    setTimeout(() => shutdown(), 150);
+  });
 
   // --- Listings ---
   app.get('/api/listings', (req, res) => {
@@ -343,8 +388,25 @@ export function createApp(deps: AppDeps): Express {
 
   // --- UI statica (build Vite), con fallback SPA ---
   if (existsSync(UI_DIST)) {
-    app.use(express.static(UI_DIST));
-    app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(`${UI_DIST}/index.html`));
+    // Gli asset di Vite hanno l'hash nel nome, quindi possono restare in cache per sempre;
+    // `index.html` no, ed è quello che li nomina. Senza un `Cache-Control` esplicito il browser
+    // applica una cache euristica e dopo un aggiornamento tiene l'index vecchio, che punta a file
+    // che non ci sono più: la pagina esce mezza rotta e sembra un difetto del codice. È successo
+    // in entrambi i progetti gemelli, con due release per venirne fuori.
+    const noCacheIndex = (res: Response): void => {
+      res.setHeader('Cache-Control', 'no-cache');
+    };
+    app.use(
+      express.static(UI_DIST, {
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('index.html')) noCacheIndex(res);
+        },
+      }),
+    );
+    app.get(/^(?!\/api).*/, (_req, res) => {
+      noCacheIndex(res);
+      res.sendFile(`${UI_DIST}/index.html`);
+    });
   }
 
   // Error-handler finale: qualsiasi reject di un handler async (via wrap) risponde 500 JSON,

@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { AiProvidersPanel } from './AiProvidersPanel';
+import { ModelPicker } from './ModelPicker';
+import { UpdatePanel } from './UpdatePanel';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card, CardHeader } from '../ui/Card';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Tabs } from '../ui/Tabs';
 
-type Tab = 'criteria' | 'searches' | 'facebook' | 'providers';
+type Tab = 'criteria' | 'searches' | 'facebook' | 'providers' | 'app';
 type SaveState = 'idle' | 'saving' | 'ok' | 'err';
 type Danger = 'reset' | 'refilter' | null;
 
@@ -16,17 +18,33 @@ const TABS = [
   { id: 'searches', label: 'Ricerche/zone' },
   { id: 'facebook', label: 'Gruppi FB' },
   { id: 'providers', label: 'Provider AI' },
+  { id: 'app', label: 'App' },
 ] as const;
 
-export function ConfigView({ onProvidersChanged }: { onProvidersChanged?: () => void }) {
+/** I tab che non sono un editor di testo: niente caricamento del contenuto, niente Salva. */
+const NON_EDITOR: readonly Tab[] = ['providers', 'app'];
+
+export function ConfigView({
+  onProvidersChanged,
+  openTab,
+}: {
+  onProvidersChanged?: () => void;
+  /** Tab da aprire su richiesta esterna (il badge "aggiornamento disponibile" nell'header). */
+  openTab?: Tab | null;
+}) {
   const [tab, setTab] = useState<Tab>('criteria');
+
+  useEffect(() => {
+    if (openTab) setTab(openTab);
+  }, [openTab]);
+
   const [text, setText] = useState('');
   const [loadErr, setLoadErr] = useState('');
   const [save, setSave] = useState<SaveState>('idle');
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
-    if (tab === 'providers') return;
+    if (NON_EDITOR.includes(tab)) return;
     setSave('idle');
     setMsg('');
     setLoadErr('');
@@ -104,8 +122,13 @@ export function ConfigView({ onProvidersChanged }: { onProvidersChanged?: () => 
     <div className="flex flex-col gap-4">
       <Tabs items={TABS} value={tab} onChange={setTab} label="Sezioni di configurazione" />
 
-      {tab === 'providers' ? (
-        <AiProvidersPanel onChanged={onProvidersChanged} />
+      {tab === 'app' ? (
+        <UpdatePanel />
+      ) : tab === 'providers' ? (
+        <div className="flex flex-col gap-4">
+          <ModelPicker onChanged={onProvidersChanged} />
+          <AiProvidersPanel onChanged={onProvidersChanged} />
+        </div>
       ) : (
         <>
           {loadErr && (
