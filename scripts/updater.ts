@@ -14,6 +14,7 @@
  * Non si lancia a mano: lo lancia l'app quando si preme "Aggiorna ora".
  */
 import { spawn, execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isWritable, isDir, syncInstallDir } from '../src/update/sync.js';
@@ -113,7 +114,9 @@ async function attendiPadre(pid: number): Promise<boolean> {
 
 /** La verifica onesta che il lock è caduto: si prova ad aprire il file in scrittura. */
 async function attendiSbloccoNodeExe(root: string): Promise<void> {
-  const exe = join(root, 'node.exe');
+  // Prima della sostituzione: è il `node.exe` che l'app in chiusura stava usando, ed è quello il
+  // cui lock deve cadere.
+  const exe = nodeDaUsare(root);
   const scadenza = Date.now() + UNLOCK_TIMEOUT_MS;
   while (Date.now() < scadenza) {
     if (await isWritable(exe)) return;
@@ -162,8 +165,21 @@ async function radice(dir: string): Promise<string> {
  * altrimenti vedrebbe un lucchetto ancora fresco e si rifiuterebbe di partire), e non aprire una
  * seconda scheda del browser — quella aperta si sta già ricaricando da sola.
  */
+/**
+ * Dove sta `node.exe` **dopo** la sostituzione dei file.
+ *
+ * Si guarda adesso e non prima: la disposizione che conta è quella appena installata. Dalla 1.5.0
+ * `node.exe` vive in `app/`; fino alla 1.4.1 stava in cima, e su un'installazione aggiornata ci
+ * sono entrambi perché la sync non cancella mai. Riavviare con quello vecchio funzionerebbe per
+ * caso — ed è esattamente il genere di cosa che regge finché non regge più.
+ */
+function nodeDaUsare(root: string): string {
+  const dentro = join(root, 'app', 'node.exe');
+  return existsSync(dentro) ? dentro : join(root, 'node.exe');
+}
+
 function riavvia(root: string, args: string[] = []): void {
-  const child = spawn(join(root, 'node.exe'), [join(root, 'app', 'scripts', 'serve.js'), ...args], {
+  const child = spawn(nodeDaUsare(root), [join(root, 'app', 'scripts', 'serve.js'), ...args], {
     cwd: root,
     detached: true,
     windowsHide: true,
