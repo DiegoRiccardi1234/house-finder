@@ -11,6 +11,10 @@ import type {
   ModelsState,
   UpdateInfo,
   UpdateProgress,
+  MailConfig,
+  FbSession,
+  JobId,
+  JobState,
 } from './types';
 
 async function json<T>(r: Response): Promise<T> {
@@ -90,6 +94,28 @@ export const api = {
     fetch('/api/listings/refilter', { method: 'POST', headers: jsonHeaders, body: '{}' }).then((r) =>
       json<{ ok: boolean; removed: number; after: number }>(r),
     ),
+
+  // --- Cose che prima si facevano solo da terminale ---
+  job: (id: JobId) => fetch(`/api/jobs/${id}`).then((r) => json<JobState>(r)),
+
+  fbSession: () => fetch('/api/facebook/session').then((r) => json<FbSession>(r)),
+  fbLogin: () => fetch('/api/facebook/login', { method: 'POST', headers: jsonHeaders, body: '{}' }),
+  fbForget: () =>
+    fetch('/api/facebook/session', { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+
+  installBrowsers: () =>
+    fetch('/api/system/install-browsers', { method: 'POST', headers: jsonHeaders, body: '{}' }),
+
+  getMail: () => fetch('/api/config/mail').then((r) => json<MailConfig>(r)),
+  putMail: (body: { host?: string; port?: number; user?: string; pass?: string; folder?: string }) =>
+    fetch('/api/config/mail', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(body) }).then(
+      (r) => json<MailConfig>(r),
+    ),
+  testMail: () =>
+    fetch('/api/config/mail/test', { method: 'POST', headers: jsonHeaders, body: '{}' }).then(
+      async (r) => (await r.json()) as { ok: boolean; folder?: string; messages?: number; error?: string },
+    ),
+  forgetMail: () => fetch('/api/config/mail', { method: 'DELETE' }).then((r) => json<MailConfig>(r)),
 
   getCriteria: () => fetch('/api/config/criteria').then((r) => json<{ content: string }>(r)),
   putCriteria: (content: string) =>

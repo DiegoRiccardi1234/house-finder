@@ -140,6 +140,7 @@ export default function App() {
             <ConfigView
               onProvidersChanged={() => setMetaToken((n) => n + 1)}
               openTab={configTab}
+              meta={meta}
             />
           </div>
         )}

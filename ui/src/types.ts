@@ -165,6 +165,34 @@ export interface ModelsState {
   tasks: { reasoning?: TaskModels; vision?: TaskModels };
 }
 
+export interface MailConfig {
+  host: string;
+  port: number;
+  user: string;
+  folder: string;
+  configured: boolean;
+  /** La password arriva dal `.env` e non da qui: spiega perché il campo è vuoto ma funziona. */
+  fromEnv: boolean;
+  defaults: { host: string; port: number; folder: string };
+}
+
+export interface FbSession {
+  exists: boolean;
+  accountId: string | null;
+  expiresAt: string | null;
+}
+
+export type JobId = 'fb-login' | 'install-browsers';
+
+export interface JobState {
+  running: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lines: string[];
+  outcome: 'ok' | 'error' | null;
+  message: string | null;
+}
+
 export interface UpdateInfo {
   current: string;
   latest: string | null;

@@ -3,34 +3,41 @@ import { api } from '../api';
 import { AiProvidersPanel } from './AiProvidersPanel';
 import { ModelPicker } from './ModelPicker';
 import { UpdatePanel } from './UpdatePanel';
+import { BrowsersPanel } from './BrowsersPanel';
+import { MailPanel } from './MailPanel';
+import { FacebookSession } from './FacebookSession';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card, CardHeader } from '../ui/Card';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Tabs } from '../ui/Tabs';
+import type { Meta } from '../types';
 
-type Tab = 'criteria' | 'searches' | 'facebook' | 'providers' | 'app';
+type Tab = 'criteria' | 'searches' | 'email' | 'facebook' | 'providers' | 'app';
 type SaveState = 'idle' | 'saving' | 'ok' | 'err';
 type Danger = 'reset' | 'refilter' | null;
 
 const TABS = [
   { id: 'criteria', label: 'Criteri (AI)' },
   { id: 'searches', label: 'Ricerche/zone' },
+  { id: 'email', label: 'Email' },
   { id: 'facebook', label: 'Gruppi FB' },
   { id: 'providers', label: 'Provider AI' },
   { id: 'app', label: 'App' },
 ] as const;
 
 /** I tab che non sono un editor di testo: niente caricamento del contenuto, niente Salva. */
-const NON_EDITOR: readonly Tab[] = ['providers', 'app'];
+const NON_EDITOR: readonly Tab[] = ['providers', 'app', 'email'];
 
 export function ConfigView({
   onProvidersChanged,
   openTab,
+  meta,
 }: {
   onProvidersChanged?: () => void;
   /** Tab da aprire su richiesta esterna (il badge "aggiornamento disponibile" nell'header). */
   openTab?: Tab | null;
+  meta?: Meta | null;
 }) {
   const [tab, setTab] = useState<Tab>('criteria');
 
@@ -123,7 +130,12 @@ export function ConfigView({
       <Tabs items={TABS} value={tab} onChange={setTab} label="Sezioni di configurazione" />
 
       {tab === 'app' ? (
-        <UpdatePanel />
+        <div className="flex flex-col gap-4">
+          <UpdatePanel />
+          <BrowsersPanel meta={meta ?? null} onChanged={onProvidersChanged} />
+        </div>
+      ) : tab === 'email' ? (
+        <MailPanel onChanged={onProvidersChanged} />
       ) : tab === 'providers' ? (
         <div className="flex flex-col gap-4">
           <ModelPicker onChanged={onProvidersChanged} />
@@ -131,6 +143,9 @@ export function ConfigView({
         </div>
       ) : (
         <>
+          {/* La sessione Facebook sta sopra l'elenco dei gruppi: senza di lei l'elenco non serve. */}
+          {tab === 'facebook' && <FacebookSession onChanged={onProvidersChanged} />}
+
           {loadErr && (
             <Alert tone="danger" title="Configurazione non caricata">
               {loadErr}. Verifica che il server sia acceso, poi ricarica la pagina.

@@ -1,38 +1,19 @@
 import 'dotenv/config';
-import { launchBrowser, newContext } from '../src/core/browser.js';
-import { isLoggedIn } from '../src/sources/fb-session.js';
+import { loginToFacebook } from '../src/sources/fb-login.js';
 import { FB_STATE_PATH } from '../src/config/facebook.js';
 
 /**
- * Login FB una-tantum: apre un browser vero, tu logghi a mano col tuo account, lo script
- * rileva la sessione e la salva in FB_STATE_PATH (gitignorato). Poi: npm run fb:run.
+ * Login FB una-tantum da riga di comando: apre un browser vero, tu logghi a mano (2FA compreso),
+ * la sessione finisce in FB_STATE_PATH (gitignorato). Poi: npm run fb:run.
  *
- * Se hai il 2FA attivo questa via chiede il codice a ogni scadenza: in quel caso conviene
- * `npm run fb:from-brave`, che riusa la sessione già aperta nel tuo browser.
+ * La stessa cosa si fa dalla UI con "Accedi a Facebook" in Config → Gruppi FB, che è la via
+ * pensata per chi usa il bundle. Questo resta per lo sviluppo; la logica è condivisa
+ * (`src/sources/fb-login.ts`), così i due non divergono.
  */
-const browser = await launchBrowser(); // headed di default (vedi browser.ts)
-const ctx = await newContext(browser);
-const page = await ctx.newPage();
-await page.goto('https://www.facebook.com/login', { waitUntil: 'domcontentloaded' });
-
-console.log('\n👉 Logga a mano nel browser aperto. Attendo il login (max 5 min)...\n');
-
-const deadline = Date.now() + 5 * 60_000;
-let ok = false;
-while (Date.now() < deadline) {
-  if (await isLoggedIn(ctx)) {
-    ok = true;
-    break;
-  }
-  await page.waitForTimeout(2000);
-}
-
-if (!ok) {
-  console.error('❌ Timeout: login non rilevato. Riprova: npm run fb:login');
-  await browser.close();
+try {
+  const id = await loginToFacebook((line) => console.log(line));
+  console.log(`\n✅ Sessione salvata in ${FB_STATE_PATH}${id ? ` (account ${id})` : ''}. Ora: npm run fb:run\n`);
+} catch (e) {
+  console.error(`\n❌ ${(e as Error).message}\n`);
   process.exit(1);
 }
-
-await ctx.storageState({ path: FB_STATE_PATH });
-console.log(`\n✅ Sessione salvata in ${FB_STATE_PATH}. Ora: npm run fb:run\n`);
-await browser.close();
