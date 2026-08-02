@@ -210,6 +210,13 @@ export function isKnownCity(slug: string): boolean {
   return BY_SLUG.has(slug.trim().toLowerCase());
 }
 
+/** La città, o un errore che dice cosa fare. Per chi compone un percorso senza `cityPath`. */
+export function requireCity(slug: string): City {
+  const c = findCity(slug);
+  if (!c) throw new UnknownCityError(slug);
+  return c;
+}
+
 /** Etichetta leggibile; per una città sconosciuta si restituisce ciò che c'è, non "undefined". */
 export function labelOf(slug: string): string {
   return findCity(slug)?.label ?? slug;

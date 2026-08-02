@@ -5,19 +5,18 @@
 import type { Source } from '../core/types.js';
 import { extractCards } from './extract.js';
 import { autoScroll, gotoResilient } from './page-utils.js';
+import { requireCity } from '../config/cities.js';
 
-// Percorso di ricerca per città (affitto residenziale).
-// NB: da confermare al primo run live (`npm run try:source casa torino-bilocale`).
-const CITY_PATH: Record<string, string> = {
-  torino: 'affitto/residenziale/torino-provincia/',
-  bari: 'affitto/residenziale/bari-provincia/',
-};
-
+// Percorso composto dal registro città come per gli altri portali: era rimasta l'ultima mappa
+// scritta a mano da due voci, e riattivare questa sorgente con quella dentro avrebbe rimesso in
+// piedi lo stesso guasto silenzioso (`casa.it/undefined`) che il registro serve a togliere.
+// NB: il formato del percorso è da confermare dal vivo (`npm run try:source casa <profilo>`).
 export const casa: Source = {
   name: 'casa',
 
   buildUrl(p) {
-    const base = `https://www.casa.it/${CITY_PATH[p.city]}`;
+    const c = requireCity(p.city);
+    const base = `https://www.casa.it/affitto/residenziale/${c.slug}-provincia/`;
     const q = new URLSearchParams({ sortType: 'newest' });
     if (p.maxPrice) q.set('priceMax', String(p.maxPrice));
     return `${base}?${q.toString()}`;

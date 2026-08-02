@@ -10,7 +10,12 @@
  * città (è l'antibot che rifiuta una richiesta senza browser) e viene riportato come tale, senza
  * fingere di essere una risposta.
  *
- * Uso: `npm run try:cities [-- --city milano] [-- --portal subito]`
+ * Uso: `npm run try:cities` · `npm run try:cities -- subito` · `npm run try:cities -- subito milano`
+ *
+ * Gli argomenti si passano **nudi**, senza trattini: `npm` interpreta `--portal subito` come una
+ * propria opzione di configurazione, se la mangia e allo script non arriva niente (avvisa pure,
+ * con un warning che si perde nell'output). Chiamando `tsx` direttamente funzionano anche
+ * `--portal` e `--city`.
  */
 import { CITIES, cityPath } from '../src/config/cities.js';
 import type { SearchProfile } from '../src/core/types.js';
@@ -73,8 +78,14 @@ async function main(): Promise<void> {
     const i = argv.indexOf(`--${n}`);
     return i >= 0 ? argv[i + 1] : undefined;
   };
-  const soloCitta = arg('city');
-  const soloPortale = arg('portal') as Portale | undefined;
+  // Quelli nudi sono ciò che sopravvive al passaggio attraverso `npm run`: un nome di portale si
+  // riconosce da sé, tutto il resto è una città.
+  const nudi = argv.filter((a) => !a.startsWith('--') && !argv.includes(`--${a}`));
+  const nudoPortale = nudi.find((a): a is Portale => a in PORTALI);
+  const nudaCitta = nudi.find((a) => !(a in PORTALI));
+
+  const soloCitta = arg('city') ?? nudaCitta;
+  const soloPortale = (arg('portal') ?? nudoPortale) as Portale | undefined;
 
   const citta = soloCitta ? CITIES.filter((c) => c.slug === soloCitta) : CITIES;
   if (citta.length === 0) {
