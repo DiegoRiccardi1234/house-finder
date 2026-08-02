@@ -1,6 +1,6 @@
 {
   "name": "house-finder",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
   "description": "Multi-channel rental listing monitor with AI scoring and a local web dashboard",
   "license": "MIT",
@@ -30,7 +30,7 @@
     "ui:build": "npm --prefix ui run build",
     "start": "npm run ui:build && npm run serve",
     "build:bundle": "node scripts/build-bundle.mjs",
-    "test": "node --import tsx --test test/match.test.ts test/email.test.ts test/facebook.test.ts test/store.test.ts test/pipeline.test.ts test/server.test.ts test/idealista.test.ts test/desc.test.ts test/endpoint-health.test.ts test/subito.test.ts test/immobiliare.test.ts test/score.test.ts test/model-select.test.ts test/config-local.test.ts test/providers.test.ts test/provider-adapters.test.ts test/failover.test.ts test/penalties.test.ts test/stats.test.ts test/ai-api.test.ts test/thumbs.test.ts test/version.test.ts test/update-check.test.ts test/update-sync.test.ts test/update-lock.test.ts test/update-updater.test.ts test/ai-models.test.ts test/setup-api.test.ts",
+    "test": "node --import tsx --test test/match.test.ts test/email.test.ts test/facebook.test.ts test/store.test.ts test/pipeline.test.ts test/server.test.ts test/idealista.test.ts test/desc.test.ts test/endpoint-health.test.ts test/subito.test.ts test/immobiliare.test.ts test/score.test.ts test/model-select.test.ts test/config-local.test.ts test/providers.test.ts test/provider-adapters.test.ts test/failover.test.ts test/penalties.test.ts test/stats.test.ts test/ai-api.test.ts test/thumbs.test.ts test/version.test.ts test/update-check.test.ts test/update-sync.test.ts test/update-lock.test.ts test/update-updater.test.ts test/ai-models.test.ts test/setup-api.test.ts test/profile.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

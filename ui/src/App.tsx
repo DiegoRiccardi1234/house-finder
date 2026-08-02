@@ -3,7 +3,7 @@ import { api } from './api';
 import { useMeta } from './hooks';
 import { Dashboard, DEFAULT_FILTERS } from './components/Dashboard';
 import { RunPanel } from './components/RunPanel';
-import { ConfigView } from './components/ConfigView';
+import { ConfigView, type ConfigTab } from './components/ConfigView';
 import { ProfileView } from './components/Profile/ProfileView';
 import { ThemeToggle } from './components/ThemeToggle';
 import type { ListingFilters } from './types';
@@ -32,7 +32,9 @@ export default function App() {
   const { meta, error: metaError } = useMeta(metaToken);
   // Solo il cartellino: il pannello con i passi e il pulsante vive in Config → App.
   const [nuovaVersione, setNuovaVersione] = useState<string | null>(null);
-  const [configTab, setConfigTab] = useState<'app' | null>(null);
+  // Quale scheda di Config aprire quando ci si arriva da un pulsante altrove. Si azzera dopo,
+  // altrimenti la scelta di un momento resterebbe appiccicata a ogni visita successiva.
+  const [configTab, setConfigTab] = useState<ConfigTab | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -53,6 +55,22 @@ export default function App() {
     setView(v);
     setVisited((prev) => (prev.has(v) ? prev : new Set(prev).add(v)));
   }, []);
+
+  /**
+   * Va in Config aprendo la scheda giusta.
+   *
+   * Il "Modifica" del profilo prima chiamava `go('config')` e basta: tecnicamente funzionava, ma
+   * atterrava sui criteri grezzi e quindi sembrava un tasto rotto. La scheda scelta si azzera
+   * subito dopo, altrimenti resterebbe imposta a ogni visita successiva.
+   */
+  const apriConfig = useCallback(
+    (t: ConfigTab) => {
+      setConfigTab(t);
+      go('config');
+      setTimeout(() => setConfigTab(null), 0);
+    },
+    [go],
+  );
 
   // A run finita l'archivio è cambiato: prima `onDone` era un no-op e la lista restava vecchia.
   const onRunDone = useCallback(() => {
@@ -77,10 +95,7 @@ export default function App() {
         <div className="ml-auto flex items-center gap-3">
           {nuovaVersione && (
             <button
-              onClick={() => {
-                setConfigTab('app');
-                go('config');
-              }}
+              onClick={() => apriConfig('app')}
               className="rounded-[var(--radius-btn)] bg-accent-soft px-2.5 py-1 text-xs text-accent hover:underline"
             >
               Aggiornamento disponibile: {nuovaVersione}
@@ -129,7 +144,8 @@ export default function App() {
             <ProfileView
               meta={meta}
               refreshToken={refreshToken}
-              onGoToConfig={() => go('config')}
+              onEditSearch={() => apriConfig('search')}
+              onGoToProviders={() => apriConfig('providers')}
               onGoToRun={() => go('run')}
             />
           </div>

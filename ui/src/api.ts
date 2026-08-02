@@ -12,6 +12,8 @@ import type {
   UpdateInfo,
   UpdateProgress,
   MailConfig,
+  Profile,
+  ProfileState,
   FbSession,
   JobId,
   JobState,
@@ -116,6 +118,12 @@ export const api = {
       async (r) => (await r.json()) as { ok: boolean; folder?: string; messages?: number; error?: string },
     ),
   forgetMail: () => fetch('/api/config/mail', { method: 'DELETE' }).then((r) => json<MailConfig>(r)),
+
+  getProfile: () => fetch('/api/config/profile').then((r) => json<ProfileState>(r)),
+  putProfile: (p: Profile) =>
+    fetch('/api/config/profile', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(p) }).then(
+      (r) => json<ProfileState>(r),
+    ),
 
   getCriteria: () => fetch('/api/config/criteria').then((r) => json<{ content: string }>(r)),
   putCriteria: (content: string) =>

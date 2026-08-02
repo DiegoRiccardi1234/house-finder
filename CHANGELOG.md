@@ -6,6 +6,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-02
+
+### Changed
+
+- **Settings are organised by what you want to do, not by which file sits underneath.** The tabs
+  used to be named after the files — "Criteri (AI)" was a markdown prompt in a textarea,
+  "Ricerche/zone" was a raw JSON array with `minRooms` and `maxRooms`. To say you wanted a
+  two-room flat in Turin under €750 you edited JSON in one box and repeated it in prose in
+  another, keeping them aligned by hand.
+  **"La tua ricerca"** replaces both: a row per search (city, name, max price, rooms), the
+  must-haves as buttons, the neighbourhoods as two lists per city — keep and avoid — and a free
+  text box for everything a field cannot express. The text the model reads is generated from all
+  of it and still visible, read-only, at the bottom: checking what the AI actually receives was
+  the one good thing about the old editor.
+- Free-text criteria are not a fallback here, they are the point. The form covers the skeleton;
+  the nuances that no field anticipates ("the centre only if it is under half the budget") keep
+  their own box, verbatim, and go into the prompt as written.
+- Facebook groups are a list with name, city and address instead of a JSON blob.
+- The danger zone — *Svuota archivio* — appears once, under *App*, instead of at the bottom of
+  every settings screen.
+
+### Fixed
+
+- **"Modifica" on the profile card now goes where it says.** It always navigated to the settings,
+  but it landed on the raw criteria text: mechanically working, practically indistinguishable
+  from a dead button. It opens the search editor.
+- **The versioned example config no longer contains a real search.** `data/criteria.md` and
+  `data/searches.json` shipped one person's cities, budgets and neighbourhood lists — in a public
+  repository, and as the defaults inside every downloaded package, so a new user opened the app on
+  someone else's search. They are now a recognisable example and an empty list, and a fresh
+  install asks you what you are looking for. Personal configuration lives in `data/local/`, which
+  is what the layout always intended.
+
 ## [1.5.0] - 2026-08-02
 
 ### Changed

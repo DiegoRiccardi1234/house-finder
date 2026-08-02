@@ -11,6 +11,16 @@ import {
   DEFAULT_MAIL_HOST,
   DEFAULT_MAIL_PORT,
 } from '../config/mail.js';
+import {
+  invalidateProfile,
+  loadProfile,
+  profileConfigured,
+  renderCriteria,
+  saveProfile,
+  type CityZones,
+  type Profile,
+  type SearchRow,
+} from '../config/profile.js';
 import { loginToFacebook, readSession } from '../sources/fb-login.js';
 import { browsersInstalled, installBrowsers } from './browsers.js';
 import { JobBusyError, JobManager, type JobId } from './jobs.js';
@@ -26,6 +36,27 @@ import { JobBusyError, JobManager, type JobId } from './jobs.js';
  * bundle, dove npm non c'è), le credenziali della posta (solo `.env`) e l'installazione dei
  * browser (`install-browsers.bat`).
  */
+
+/** Etichette pulite e senza doppioni: le liste arrivano da campi di testo, non da un database. */
+function cleanList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out = v
+    .filter((x): x is string => typeof x === 'string')
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0 && x.length < 60);
+  return Array.from(new Set(out));
+}
+
+/** Identificatore stabile e prevedibile a partire da un'etichetta scritta a mano. */
+function slug(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 60);
+}
 
 export function createSetupRouter(jobs: JobManager): Router {
   const r = Router();
@@ -99,6 +130,71 @@ export function createSetupRouter(jobs: JobManager): Router {
   r.post('/system/install-browsers', (req, res) => {
     if (requireJson(req, res)) return;
     startJob('install-browsers', res, (log) => installBrowsers(log));
+  });
+
+  // --- La tua ricerca -------------------------------------------------------------------------
+
+  /**
+   * Il profilo di ricerca, più il testo che ne viene generato per l'AI.
+   *
+   * `generated` torna al client di proposito: la schermata lo mostra in un blocco richiudibile,
+   * così chi vuole capire *cosa legge davvero il modello* può guardarlo invece di fidarsi. Era
+   * l'unica cosa buona dell'editor grezzo di prima, e sarebbe stato un peccato perderla.
+   */
+  r.get('/config/profile', (_req, res) => {
+    const p = loadProfile();
+    res.json({ profile: p, generated: renderCriteria(p), configured: profileConfigured() });
+  });
+
+  r.put('/config/profile', async (req, res) => {
+    if (requireJson(req, res)) return;
+    const b = req.body as Partial<Profile>;
+    if (!Array.isArray(b.searches)) {
+      return res.status(400).json({ error: 'profilo non valido: manca searches' });
+    }
+
+    const searches: SearchRow[] = [];
+    for (const raw of b.searches) {
+      const s = raw as Partial<SearchRow>;
+      const city = typeof s.city === 'string' ? s.city.trim().toLowerCase() : '';
+      const label = typeof s.label === 'string' ? s.label.trim() : '';
+      const maxPrice = Number(s.maxPrice);
+      if (!city || !label || !Number.isFinite(maxPrice) || maxPrice <= 0) continue;
+      searches.push({
+        // L'id finisce negli URL degli scraper e nei log: si ricava dall'etichetta, ma resta
+        // stabile se c'era già, altrimenti rinominare una ricerca ne creerebbe una nuova.
+        id: typeof s.id === 'string' && s.id ? s.id : slug(`${city}-${label}`),
+        city,
+        label,
+        maxPrice: Math.round(maxPrice),
+        ...(Number.isFinite(Number(s.minRooms)) && Number(s.minRooms) > 0
+          ? { minRooms: Math.round(Number(s.minRooms)) }
+          : {}),
+        ...(Number.isFinite(Number(s.maxRooms)) && Number(s.maxRooms) > 0
+          ? { maxRooms: Math.round(Number(s.maxRooms)) }
+          : {}),
+      });
+    }
+
+    const zones: CityZones[] = (Array.isArray(b.zones) ? b.zones : [])
+      .map((z) => z as Partial<CityZones>)
+      .filter((z) => typeof z.city === 'string')
+      .map((z) => ({
+        city: (z.city as string).trim().toLowerCase(),
+        keep: cleanList(z.keep),
+        avoid: cleanList(z.avoid),
+      }));
+
+    const profile: Profile = {
+      searches,
+      zones,
+      musts: cleanList(b.musts),
+      notes: typeof b.notes === 'string' ? b.notes : '',
+    };
+
+    await saveProfile(profile);
+    invalidateProfile();
+    res.json({ profile, generated: renderCriteria(profile), configured: profileConfigured() });
   });
 
   // --- Posta ----------------------------------------------------------------------------------

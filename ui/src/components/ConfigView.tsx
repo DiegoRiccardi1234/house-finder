@@ -6,28 +6,32 @@ import { UpdatePanel } from './UpdatePanel';
 import { BrowsersPanel } from './BrowsersPanel';
 import { MailPanel } from './MailPanel';
 import { FacebookSession } from './FacebookSession';
-import { Alert } from '../ui/Alert';
+import { FacebookGroups } from './FacebookGroups';
+import { SearchEditor } from './SearchEditor';
 import { Button } from '../ui/Button';
 import { Card, CardHeader } from '../ui/Card';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Tabs } from '../ui/Tabs';
 import type { Meta } from '../types';
 
-type Tab = 'criteria' | 'searches' | 'email' | 'facebook' | 'providers' | 'app';
-type SaveState = 'idle' | 'saving' | 'ok' | 'err';
+export type ConfigTab = 'search' | 'email' | 'facebook' | 'providers' | 'app';
 type Danger = 'reset' | 'refilter' | null;
 
+/**
+ * Le impostazioni, divise per **cosa vuoi fare**, non per quale file c'è sotto.
+ *
+ * Prima i tab erano "Criteri (AI)", "Ricerche/zone" e "Gruppi FB", e i primi due erano una casella
+ * di testo con dentro rispettivamente un prompt markdown e un array JSON con `minRooms`. Erano i
+ * nomi dei file, non le domande di chi li apriva — e la zona pericolosa, con "Svuota archivio",
+ * compariva in fondo a ognuno di essi.
+ */
 const TABS = [
-  { id: 'criteria', label: 'Criteri (AI)' },
-  { id: 'searches', label: 'Ricerche/zone' },
+  { id: 'search', label: 'La tua ricerca' },
   { id: 'email', label: 'Email' },
-  { id: 'facebook', label: 'Gruppi FB' },
+  { id: 'facebook', label: 'Facebook' },
   { id: 'providers', label: 'Provider AI' },
   { id: 'app', label: 'App' },
 ] as const;
-
-/** I tab che non sono un editor di testo: niente caricamento del contenuto, niente Salva. */
-const NON_EDITOR: readonly Tab[] = ['providers', 'app', 'email'];
 
 export function ConfigView({
   onProvidersChanged,
@@ -35,73 +39,15 @@ export function ConfigView({
   meta,
 }: {
   onProvidersChanged?: () => void;
-  /** Tab da aprire su richiesta esterna (il badge "aggiornamento disponibile" nell'header). */
-  openTab?: Tab | null;
+  /** Tab da aprire su richiesta esterna (il badge dell'header, il tasto Modifica del profilo). */
+  openTab?: ConfigTab | null;
   meta?: Meta | null;
 }) {
-  const [tab, setTab] = useState<Tab>('criteria');
+  const [tab, setTab] = useState<ConfigTab>('search');
 
   useEffect(() => {
     if (openTab) setTab(openTab);
   }, [openTab]);
-
-  const [text, setText] = useState('');
-  const [loadErr, setLoadErr] = useState('');
-  const [save, setSave] = useState<SaveState>('idle');
-  const [msg, setMsg] = useState('');
-
-  useEffect(() => {
-    if (NON_EDITOR.includes(tab)) return;
-    setSave('idle');
-    setMsg('');
-    setLoadErr('');
-    const load =
-      tab === 'criteria'
-        ? api.getCriteria().then((c) => c.content)
-        : (tab === 'searches' ? api.getSearches() : api.getFacebook()).then((d) =>
-            JSON.stringify(d, null, 2),
-          );
-    // Prima questo `then` era senza catch: col server giù restava il testo del tab precedente.
-    load.then(setText).catch((e: Error) => {
-      setText('');
-      setLoadErr(e.message);
-    });
-  }, [tab]);
-
-  async function onSave() {
-    setSave('saving');
-    setMsg('');
-    try {
-      let res: Response;
-      if (tab === 'criteria') {
-        res = await api.putCriteria(text);
-      } else {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          setSave('err');
-          setMsg('JSON non valido: controlla virgole e parentesi.');
-          return;
-        }
-        res = tab === 'searches' ? await api.putSearches(parsed) : await api.putFacebook(parsed);
-      }
-      if (res.ok) {
-        setSave('ok');
-        setMsg('Salvato in data/local. Vale dal prossimo run.');
-      } else {
-        const body = await res.json().catch(() => ({}));
-        const issues = Array.isArray(body.issues)
-          ? ' — ' + body.issues.map((i: { message?: string }) => i.message).filter(Boolean).join('; ')
-          : '';
-        setSave('err');
-        setMsg(`Rifiutato: ${body.error ?? res.status}${issues}`);
-      }
-    } catch (e) {
-      setSave('err');
-      setMsg((e as Error).message);
-    }
-  }
 
   const [danger, setDanger] = useState<Danger>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
@@ -129,48 +75,31 @@ export function ConfigView({
     <div className="flex flex-col gap-4">
       <Tabs items={TABS} value={tab} onChange={setTab} label="Sezioni di configurazione" />
 
-      {tab === 'app' ? (
+      {tab === 'search' && <SearchEditor onSaved={onProvidersChanged} />}
+
+      {tab === 'email' && <MailPanel onChanged={onProvidersChanged} />}
+
+      {tab === 'facebook' && (
         <div className="flex flex-col gap-4">
-          <UpdatePanel />
-          <BrowsersPanel meta={meta ?? null} onChanged={onProvidersChanged} />
+          {/* La sessione sta sopra l'elenco: senza accesso, i gruppi non si possono leggere. */}
+          <FacebookSession onChanged={onProvidersChanged} />
+          <FacebookGroups />
         </div>
-      ) : tab === 'email' ? (
-        <MailPanel onChanged={onProvidersChanged} />
-      ) : tab === 'providers' ? (
+      )}
+
+      {tab === 'providers' && (
         <div className="flex flex-col gap-4">
           <ModelPicker onChanged={onProvidersChanged} />
           <AiProvidersPanel onChanged={onProvidersChanged} />
         </div>
-      ) : (
-        <>
-          {/* La sessione Facebook sta sopra l'elenco dei gruppi: senza di lei l'elenco non serve. */}
-          {tab === 'facebook' && <FacebookSession onChanged={onProvidersChanged} />}
+      )}
 
-          {loadErr && (
-            <Alert tone="danger" title="Configurazione non caricata">
-              {loadErr}. Verifica che il server sia acceso, poi ricarica la pagina.
-            </Alert>
-          )}
+      {tab === 'app' && (
+        <div className="flex flex-col gap-4">
+          <UpdatePanel />
+          <BrowsersPanel meta={meta ?? null} onChanged={onProvidersChanged} />
 
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            spellCheck={false}
-            aria-label={TABS.find((t) => t.id === tab)?.label}
-            className="h-[55vh] w-full rounded-[var(--radius-card)] border border-line bg-surface-hi p-4 font-mono text-sm text-ink"
-            style={{ fontFamily: 'var(--font-mono)' }}
-          />
-
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="primary" onClick={onSave} loading={save === 'saving'}>
-              Salva
-            </Button>
-            {msg && (
-              <span className={`text-sm ${save === 'ok' ? 'text-ok' : 'text-danger'}`}>{msg}</span>
-            )}
-            {tab !== 'criteria' && <span className="text-xs text-faint">Formato JSON.</span>}
-          </div>
-
+          {/* Una volta sola, e nella scheda che parla dell'app — non in fondo a ogni schermata. */}
           <Card className="border-danger/30">
             <CardHeader kicker="irreversibile" title="Zona pericolosa" />
             <div className="flex flex-wrap items-center gap-3 p-4">
@@ -188,7 +117,7 @@ export function ConfigView({
               {resetMsg && <span className="text-sm text-ink-soft">{resetMsg}</span>}
             </div>
           </Card>
-        </>
+        </div>
       )}
 
       <ConfirmDialog

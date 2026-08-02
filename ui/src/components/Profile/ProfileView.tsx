@@ -9,12 +9,15 @@ import { AiStatus } from './AiStatus';
 export function ProfileView({
   meta,
   refreshToken,
-  onGoToConfig,
+  onEditSearch,
+  onGoToProviders,
   onGoToRun,
 }: {
   meta: Meta | null;
   refreshToken: number;
-  onGoToConfig: () => void;
+  /** Porta all'editor della ricerca, non a un file di testo: vedi `apriConfig` in App. */
+  onEditSearch: () => void;
+  onGoToProviders: () => void;
   onGoToRun: () => void;
 }) {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -55,9 +58,9 @@ export function ProfileView({
 
   return (
     <div className="flex flex-col gap-5">
-      <SearchSummary criteria={criteria} searches={searches} onEdit={onGoToConfig} />
+      <SearchSummary criteria={criteria} searches={searches} onEdit={onEditSearch} />
       <PersonalStats stats={stats} channels={meta?.channels ?? []} onGoToRun={onGoToRun} />
-      <AiStatus health={health} onConfigure={onGoToConfig} />
+      <AiStatus health={health} onConfigure={onGoToProviders} />
     </div>
   );
 }

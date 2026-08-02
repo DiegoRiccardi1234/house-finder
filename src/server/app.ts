@@ -22,6 +22,7 @@ import { createSetupRouter } from './setupRoutes.js';
 import { JobManager } from './jobs.js';
 import { browsersInstalled } from './browsers.js';
 import { mailConfigured } from '../config/mail.js';
+import { profileConfigured } from '../config/profile.js';
 import { APP_VERSION } from '../version.js';
 
 type RunPipelineFn = (
@@ -146,6 +147,9 @@ export function createApp(deps: AppDeps): Express {
       // sondaggi. Job Finder non espone la versione e infatti la sua pagina, a volte, non si
       // ricarica mai.
       version: APP_VERSION,
+      // Ha già detto cosa cerca? Sotto questa soglia una scansione non ha senso, e la UI deve
+      // accompagnarcelo invece di presentargli i criteri di qualcun altro.
+      profileConfigured: profileConfigured(),
       aiConfigured: aiConfigured(),
       aiProvider: primaryProvider(),
       imapConfigured: imap,
