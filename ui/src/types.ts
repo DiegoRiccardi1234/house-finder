@@ -292,7 +292,8 @@ export interface SearchProfile {
 export interface RunSummary {
   runId: string;
   channels: string[];
-  results: Array<{ channel: string; collected: number; unique: number; fresh: number; errors: string[] }>;
+  outcome?: 'succeeded' | 'partial' | 'failed';
+  results: Array<{ channel: string; collected: number; unique: number; fresh: number; errors: string[]; persisted?: boolean; outcome?: 'succeeded' | 'partial' | 'failed' }>;
 }
 
 /** Il riassunto in tre numeri, quelli che interessano a chi guarda. */
@@ -300,6 +301,8 @@ export interface RunEsito {
   nuovi: number;
   visti: number;
   canali: number;
+  outcome: 'succeeded' | 'partial' | 'failed';
+  errors: string[];
 }
 
 export type SseEvent =

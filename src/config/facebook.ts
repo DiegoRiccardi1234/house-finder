@@ -10,7 +10,7 @@ import { configReadPath } from './paths.js';
  *
  * Sorgente editabile: `data/facebook.json`, scavalcabile da `data/local/facebook.json`
  * (vedi `paths.ts`); gruppi + Marketplace, modificabile anche dalla UI.
- * Fallback all'embedded se il file manca.
+ * Se il file manca, gruppi e Marketplace restano vuoti.
  */
 export interface FbGroup {
   name: string;
@@ -28,30 +28,22 @@ export const FB_MAX_SCROLL = Number(process.env.FB_MAX_SCROLL ?? '6'); // feed v
 
 // Placeholder: sostituisci con i gruppi che hai joinato, in `data/facebook.json`
 // (o in `data/local/facebook.json`, che ha la precedenza e non è versionato).
-const FALLBACK_GROUPS: FbGroup[] = [
-  { name: 'Affitti privati Torino (esempio)', city: 'torino', url: 'https://www.facebook.com/groups/000000000000000/' },
-  { name: 'Affitti privati Bari (esempio)', city: 'bari', url: 'https://www.facebook.com/groups/000000000000001/' },
-];
-
-const FALLBACK_MARKET: FbMarketTarget[] = [
-  { name: 'Marketplace affitti (conferma URL da loggato)', url: 'https://www.facebook.com/marketplace/category/propertyrentals?sortBy=creation_time_descend&exact=false' },
-];
-
 interface FbConfig {
   groups: FbGroup[];
   market: FbMarketTarget[];
 }
 
-/** Legge gruppi + Marketplace freschi dal file dati (per la UI); fallback all'embedded. */
+/** Legge gruppi + Marketplace freschi dal file dati (per la UI). */
 export function loadFbConfig(): FbConfig {
   try {
     const c = JSON.parse(readFileSync(configReadPath('facebook.json'), 'utf8')) as Partial<FbConfig>;
     return {
-      groups: Array.isArray(c.groups) && c.groups.length ? c.groups : FALLBACK_GROUPS,
-      market: Array.isArray(c.market) && c.market.length ? c.market : FALLBACK_MARKET,
+      groups: Array.isArray(c.groups) ? c.groups : [],
+      market: Array.isArray(c.market) ? c.market : [],
     };
-  } catch {
-    return { groups: FALLBACK_GROUPS, market: FALLBACK_MARKET };
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { groups: [], market: [] };
+    throw e;
   }
 }
 

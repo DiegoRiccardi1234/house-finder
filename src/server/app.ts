@@ -23,8 +23,9 @@ import { createAssistRouter } from './assistRoutes.js';
 import { JobManager } from './jobs.js';
 import { browsersInstalled } from './browsers.js';
 import { mailConfigured } from '../config/mail.js';
-import { profileConfigured } from '../config/profile.js';
+import { profileConfigured, invalidateProfile } from '../config/profile.js';
 import { APP_VERSION } from '../version.js';
+import { readLock as readUpdateLock } from '../update/lock.js';
 
 type RunPipelineFn = (
   channels: ChannelId[],
@@ -33,6 +34,8 @@ type RunPipelineFn = (
 
 export interface AppDeps {
   store: ListingStore;
+  /** Override isolato per le prove del primo avvio. */
+  profileConfigured?: () => boolean;
   /** Override per i test (default: la pipeline reale). */
   runPipeline?: RunPipelineFn;
   /** Override per i test (default: i file reali sotto `data/`). */
@@ -121,6 +124,7 @@ async function writeFileSafe(path: string, content: string): Promise<void> {
 
 export function createApp(deps: AppDeps): Express {
   const store = deps.store;
+  const hasProfile = deps.profileConfigured ?? profileConfigured;
   const runPipeline = deps.runPipeline ?? realRunPipeline;
   // Path risolti a OGNI richiesta, non una volta all'avvio: `data/local/<file>` creato a runtime
   // (dalla prima PUT) deve valere subito. Legge dal locale se c'è, scrive SEMPRE nel locale —
@@ -135,6 +139,7 @@ export function createApp(deps: AppDeps): Express {
     deps.onShutdown ?? (() => console.warn('[server] spegnimento richiesto ma non collegato'));
 
   const app = express();
+  app.locals.isRunRunning = () => runManager.isRunning;
   app.use(express.json());
 
   // --- Meta: cosa è disponibile (per abilitare canali/pulsanti nella UI) ---
@@ -142,6 +147,8 @@ export function createApp(deps: AppDeps): Express {
     const fbSessionExists = existsSync(FB_STATE_PATH);
     const imap = imapConfigured();
     const browser = browsersInstalled();
+    const configured = hasProfile();
+    const needsProfile = 'ricerca non configurata — impostala da Config → La tua ricerca';
     // Senza browser i canali scraper fallirebbero al primo click: meglio dirlo qui che in uno stack
     // trace. Il messaggio indica il pulsante, non un comando: questa riga la legge chi ha scaricato
     // uno zip e non ha nessun terminale da aprire.
@@ -155,7 +162,7 @@ export function createApp(deps: AppDeps): Express {
       version: APP_VERSION,
       // Ha già detto cosa cerca? Sotto questa soglia una scansione non ha senso, e la UI deve
       // accompagnarcelo invece di presentargli i criteri di qualcun altro.
-      profileConfigured: profileConfigured(),
+      profileConfigured: configured,
       aiConfigured: aiConfigured(),
       aiProvider: primaryProvider(),
       imapConfigured: imap,
@@ -165,17 +172,17 @@ export function createApp(deps: AppDeps): Express {
         {
           id: 'email',
           label: 'Portali (email)',
-          available: imap,
-          reason: imap ? '' : 'casella email non configurata — impostala da Config → Email',
+          available: configured && imap,
+          reason: !configured ? needsProfile : imap ? '' : 'casella email non configurata — impostala da Config → Email',
         },
-        { id: 'subito', label: 'Subito', available: browser, reason: needsBrowser },
-        { id: 'immobiliare', label: 'Immobiliare (diretto)', available: browser, reason: needsBrowser },
-        { id: 'idealista', label: 'Idealista (diretto)', available: browser, reason: needsBrowser },
+        { id: 'subito', label: 'Subito', available: configured && browser, reason: !configured ? needsProfile : needsBrowser },
+        { id: 'immobiliare', label: 'Immobiliare (diretto)', available: configured && browser, reason: !configured ? needsProfile : needsBrowser },
+        { id: 'idealista', label: 'Idealista (diretto)', available: configured && browser, reason: !configured ? needsProfile : needsBrowser },
         {
           id: 'facebook',
           label: 'Facebook',
-          available: fbSessionExists && browser,
-          reason: !browser
+          available: configured && fbSessionExists && browser,
+          reason: !configured ? needsProfile : !browser
             ? needsBrowser
             : fbSessionExists
               ? ''
@@ -344,6 +351,7 @@ export function createApp(deps: AppDeps): Express {
     if (rejectIfRunning(res)) return;
     if (typeof req.body?.content !== 'string') return res.status(400).json({ error: 'content mancante' });
     await writeFileSafe(writeCfg('criteria'), req.body.content);
+    invalidateProfile();
     res.json({ ok: true });
   }));
 
@@ -355,6 +363,7 @@ export function createApp(deps: AppDeps): Express {
     const parsed = SearchesSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'searches non valido', issues: parsed.error.issues });
     await writeFileSafe(writeCfg('searches'), JSON.stringify(parsed.data, null, 2) + '\n');
+    invalidateProfile();
     res.json({ ok: true });
   }));
 
@@ -373,6 +382,13 @@ export function createApp(deps: AppDeps): Express {
   app.post('/api/runs', (req, res) => {
     const parsed = RunBodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'channels non valido' });
+    const updateLock = readUpdateLock(deps.stateDir ?? 'state');
+    if (updateLock && !updateLock.stale) {
+      return res.status(409).json({ error: 'Attendi la fine dell’aggiornamento prima di avviare una scansione.', code: 'UPDATE_IN_PROGRESS' });
+    }
+    if (!hasProfile()) {
+      return res.status(400).json({ code: 'PROFILE_NOT_CONFIGURED', error: 'Configura la ricerca prima di avviare una scansione.' });
+    }
     const channels = parsed.data.channels as ChannelId[];
     try {
       const runId = runManager.start(channels, (log) => runPipeline(channels, { store, log }));

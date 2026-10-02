@@ -9,7 +9,7 @@ import { createApp } from '../src/server/app.js';
 import { invalidateCreds, saveKey, setPrimary } from '../src/ai/credentials.js';
 import { CATALOG, specOf } from '../src/ai/providers/catalog.js';
 import { buildChainForTask, modelsForTask } from '../src/ai/failover.js';
-import { clearHealthCache } from '../src/ai/endpoint-health.js';
+import { clearHealthCache, clearPenalties, recordPenalty } from '../src/ai/endpoint-health.js';
 
 /**
  * La scelta del modello dalla UI.
@@ -35,6 +35,7 @@ async function withCreds(fn: () => Promise<void>): Promise<void> {
   process.env.DATA_DIR = dir;
   invalidateCreds();
   clearHealthCache();
+  clearPenalties();
   try {
     await fn();
   } finally {
@@ -48,6 +49,7 @@ async function withCreds(fn: () => Promise<void>): Promise<void> {
     else process.env.DATA_DIR = prevDir;
     invalidateCreds();
     clearHealthCache();
+    clearPenalties();
     await rm(dir, { recursive: true, force: true });
   }
 }
@@ -138,5 +140,38 @@ test('il pin del primario non contamina gli altri provider della catena', async 
       cerebras.every((r) => r.model !== scelto || specOf('cerebras').reasoning.includes(scelto)),
       'il modello fissato su un provider è finito nella lista di un altro',
     );
+  });
+});
+
+test('OpenRouter: pin morto escluso e nessun fallback quando tutti gli endpoint sono morti', async () => {
+  await withCreds(async () => {
+    await saveKey('openrouter', 'sk-finta');
+    const pinned = specOf('openrouter').reasoning[0] as string;
+    await setPrimary('openrouter', pinned);
+    const fetchFn = async () => ({ ok: true, json: async () => ({ data: { endpoints: [] } }) });
+    assert.deepEqual(await buildChainForTask('reasoning', { fetchFn }), []);
+    assert.equal((await modelsForTask('reasoning', { fetchFn })).auto, null);
+  });
+});
+
+test('OpenRouter: fetch salute fallito mantiene pin e candidati statici', async () => {
+  await withCreds(async () => {
+    await saveKey('openrouter', 'sk-finta');
+    const pinned = specOf('openrouter').reasoning[0] as string;
+    await setPrimary('openrouter', pinned);
+    const fetchFn = async () => { throw new Error('offline'); };
+    const chain = await buildChainForTask('reasoning', { fetchFn });
+    assert.equal(chain[0]?.model, pinned);
+    assert.ok(chain.length > 0);
+  });
+});
+
+test('pin penalizzato: modello sano alternativo precede il pin', async () => {
+  await withCreds(async () => {
+    await saveKey('groq', 'sk-finta');
+    const pinned = specOf('groq').reasoning[0] as string;
+    await setPrimary('groq', pinned);
+    recordPenalty(`groq::${pinned}`, '429');
+    assert.notEqual((await buildChainForTask('reasoning'))[0]?.model, pinned);
   });
 });

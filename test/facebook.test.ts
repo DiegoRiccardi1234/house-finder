@@ -1,5 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { BrowserContext } from 'playwright';
+import { scrapeGroups } from '../src/sources/facebook-groups.js';
+import { scrapeMarketplace } from '../src/sources/facebook-marketplace.js';
+import { settleFacebookContent } from '../src/sources/fb-load.js';
+import type { Page } from 'playwright';
 import {
   parsePostId,
   parseMarketplaceId,
@@ -104,4 +109,56 @@ test('isShortTerm: breve/giornaliero vs mensile', () => {
   assert.equal(isShortTerm('Affitto breve, 50€ a notte'), true);
   assert.equal(isShortTerm('Monolocale disponibile solo per affitti brevi'), true);
   assert.equal(isShortTerm('Bilocale arredato 650€ al mese'), false);
+});
+
+test('Facebook: errori di ogni target propagati al chiamante, pagine chiuse e scansione prosegue', async (t) => {
+  let opened = 0;
+  let closed = 0;
+  const ctx = {
+    newPage: async () => {
+      opened++;
+      return {
+        goto: async () => { throw new Error('accesso negato'); },
+        isClosed: () => false,
+        close: async () => { closed++; },
+      };
+    },
+  } as unknown as BrowserContext;
+  t.mock.method(console, 'error', () => {});
+  const errors: string[] = [];
+  assert.deepEqual(await scrapeGroups(ctx, [
+    { name: 'Gruppo A', city: 'torino', url: 'https://test.invalid/a' },
+    { name: 'Gruppo B', city: 'torino', url: 'https://test.invalid/b' },
+  ], 0, (error) => errors.push(error)), []);
+  assert.deepEqual(await scrapeMarketplace(ctx, [{ name: 'Mercato', url: 'https://test.invalid/m' }], 0, (error) => errors.push(error)), []);
+  assert.equal(opened, 3);
+  assert.equal(closed, 3);
+  assert.deepEqual(errors, ['gruppo Gruppo A: accesso negato', 'gruppo Gruppo B: accesso negato', 'marketplace Mercato: accesso negato']);
+});
+
+test('Facebook: raccoglie contenuti tardivi durante l\'attesa e lascia stabilizzare il feed', async (t) => {
+  let clock = 0;
+  t.mock.method(Date, 'now', () => clock);
+  const page = { waitForTimeout: async (ms: number) => { clock += ms; } } as unknown as Page;
+  const samples: number[] = [];
+  await settleFacebookContent(page, async () => {
+    const count = clock >= 4500 ? 3 : clock >= 3500 ? 2 : 1;
+    samples.push(count);
+    return count;
+  });
+  assert.ok(samples.includes(2), 'la raccolta incrementale vede anche il contenuto transitorio');
+  assert.equal(samples.at(-1), 3);
+  assert.ok(clock >= 6500, 'il nuovo contenuto riceve 2 secondi per stabilizzarsi');
+  assert.ok(clock <= 12_000);
+});
+
+test('Facebook: caricamento continuo ha un limite, feed fermo attende almeno 5 secondi', async (t) => {
+  let clock = 0;
+  t.mock.method(Date, 'now', () => clock);
+  const page = { waitForTimeout: async (ms: number) => { clock += ms; } } as unknown as Page;
+  await settleFacebookContent(page, async () => 0);
+  assert.equal(clock, 5000);
+  clock = 0;
+  await settleFacebookContent(page, async () => clock / 500);
+  assert.equal(clock, 12_000);
 });

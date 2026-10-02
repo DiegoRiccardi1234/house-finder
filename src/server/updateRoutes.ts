@@ -84,8 +84,15 @@ export function createUpdateRouter(deps: UpdateDeps): Router {
 
   r.post('/install', async (req, res) => {
     if (requireJson(req, res)) return;
+    if (req.app.locals.isRunRunning?.()) {
+      return res.status(409).json({ error: 'run_in_progress', detail: 'Attendi la fine della scansione prima di aggiornare.' });
+    }
 
     const info = await check({ force: true });
+    // Una scansione può essere iniziata mentre aspettavamo la risposta di GitHub.
+    if (req.app.locals.isRunRunning?.()) {
+      return res.status(409).json({ error: 'run_in_progress', detail: 'Attendi la fine della scansione prima di aggiornare.' });
+    }
     if (!info.frozen) {
       return res.status(409).json({
         error: 'source_install',
@@ -146,7 +153,7 @@ export function createUpdateRouter(deps: UpdateDeps): Router {
         writeEvent(deps.stateDir, { step: 'verify', pct: 65, detail: 'preparo l\'aggiornatore' });
         const tempDir = await stageUpdater(root, nodeExe);
 
-        launchUpdater({
+        await launchUpdater({
           installRoot: root,
           zipPath: zip,
           tempDir,

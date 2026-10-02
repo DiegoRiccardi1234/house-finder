@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mapRaw, type RawCard } from '../src/sources/idealista.js';
+import { mapRaw, mapCards, type RawCard } from '../src/sources/idealista.js';
 
 test('idealista mapRaw: campi base + zona dal titolo', () => {
   const l = mapRaw({
@@ -59,4 +59,10 @@ test('idealista mapRaw: prezzo assente → null, non crasha', () => {
   assert.equal(l.rooms, null);
   assert.equal(l.sizeSqm, null);
   assert.equal(l.zone, 'Madonnella'); // penultimo segmento (ultimo = città)
+});
+
+test('idealista: pagina senza card leggibili non dichiara zero risultati verificati', () => {
+  assert.throws(() => mapCards([]), /pagina vuota non verificata/);
+  assert.throws(() => mapCards([{ id: null, href: null, title: '', priceText: '', details: [], description: null, img: null }]), /nessuna card riconosciuta/);
+  assert.equal(mapCards([{ id: '1', href: '/immobile/1/', title: 'Casa', priceText: '', details: [], description: null, img: null }]).length, 1);
 });

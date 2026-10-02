@@ -7,15 +7,15 @@ import { configReadPath } from './paths.js';
  * Sorgente editabile: `data/searches.json`, scavalcabile da `data/local/searches.json`
  * (vedi `paths.ts`). Fallback all'embedded se il file manca.
  */
-const FALLBACK: SearchProfile[] = [];
-
-/** Legge i profili freschi dal file dati (per la UI); fallback all'embedded. */
+/** Nessuna ricerca salvata significa nessuna scansione, mai una ricerca di esempio. */
 export function loadSearches(): SearchProfile[] {
   try {
     const arr = JSON.parse(readFileSync(configReadPath('searches.json'), 'utf8')) as SearchProfile[];
-    return Array.isArray(arr) && arr.length ? arr : FALLBACK;
-  } catch {
-    return FALLBACK;
+    if (!Array.isArray(arr)) throw new Error('searches.json deve contenere un elenco di ricerche');
+    return arr;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw e;
   }
 }
 

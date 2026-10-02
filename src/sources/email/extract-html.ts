@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
-import type { Listing } from '../../core/types.js';
+import type { EmailLinkResolver, EmailResolution, Listing } from '../../core/types.js';
+import { isEmailAction } from './tracking-links.js';
 
 function safeDecode(s: string): string {
   try {
@@ -52,7 +53,7 @@ export function extractFromHtml(html: string, source: string, linkRe: RegExp): L
     }
     const text = node.text().replace(/\s+/g, ' ').trim();
 
-    const price = num(text.match(/€\s?([\d.]+)/)?.[1]);
+    const price = num(text.match(/€\s?([\d.]+)/)?.[1] ?? text.match(/([\d.]+)\s?€/)?.[1]);
     const sizeSqm = num(text.match(/(\d+)\s*m(?:²|q)/i)?.[1]);
     const rooms = num(text.match(/(\d+)\s*local/i)?.[1]);
     const title = $(el).text().replace(/\s+/g, ' ').trim() || text.slice(0, 80);
@@ -61,4 +62,36 @@ export function extractFromHtml(html: string, source: string, linkRe: RegExp): L
   });
 
   return out;
+}
+
+/** Recupera solo card con prezzo + metratura/locali, evitando link newsletter e azioni. */
+export async function resolveFromHtml(html: string, source: string, linkRe: RegExp, resolver: EmailLinkResolver): Promise<EmailResolution> {
+  const $ = cheerio.load(html);
+  const candidates = new Map<string, Array<ReturnType<typeof $>>>();
+  $('a[href]').each((_, el) => {
+    const node = $(el);
+    const href = node.attr('href') ?? '';
+    if (safeDecode(href).match(linkRe) || isEmailAction(href)) return;
+    const label = `${node.text()} ${node.find('img').attr('alt') ?? ''}`.replace(/\s+/g, ' ').trim();
+    if (isEmailAction(label) || !/appartamento|bilocale|trilocale|monolocale|quadrilocale|stanza|camera|\bvia\b|\bviale\b|vedi\s+annuncio|visualizza\s+annuncio/i.test(label)) return;
+    let parent = node;
+    for (let i = 0; i < 5; i++, parent = parent.parent()) {
+      const text = parent.text().replace(/\s+/g, ' ').trim();
+      if (text.length > 900 || !parent.length) break;
+      if (/€|\beuro\b/i.test(text) && /\d+\s*(?:m²|mq|locali|vani)/i.test(text)) {
+        const anchors = candidates.get(href) ?? [];
+        anchors.push(node);
+        candidates.set(href, anchors);
+        break;
+      }
+    }
+  });
+  let unresolved = 0;
+  await Promise.all([...candidates].map(async ([href, nodes]) => {
+    const target = await resolver.resolve(href, source);
+    if (!target) { unresolved++; return; }
+    for (const node of nodes) node.attr('href', target);
+  }));
+  const listings = extractFromHtml($.html(), source, linkRe);
+  return { listings, complete: listings.length > 0 && unresolved === 0, unresolved };
 }

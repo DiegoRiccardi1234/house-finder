@@ -7,6 +7,9 @@ import { join } from 'node:path';
 import { ListingStore } from '../src/core/store.js';
 import { createApp } from '../src/server/app.js';
 import { configReadPath, localConfigPath, sharedConfigPath } from '../src/config/paths.js';
+import { loadSearches } from '../src/config/searches.js';
+import { loadCriteria } from '../src/config/criteria.js';
+import { loadFbConfig } from '../src/config/facebook.js';
 
 /**
  * Override locale della config: `data/local/<file>` vince in lettura, e TUTTE le scritture
@@ -59,6 +62,27 @@ test('localConfigPath: sempre sotto data/local/', async () => {
   await withDataDir(() => {
     assert.match(localConfigPath('facebook.json').replace(/\\/g, '/'), /\/local\/facebook\.json$/);
     return Promise.resolve();
+  });
+});
+
+test('nessuna ricerca: file assente o [] non attivano esempi; file corrotto è un errore', async () => {
+  await withDataDir(async (dir) => {
+    assert.deepEqual(loadSearches(), []);
+    await writeFile(join(dir, 'searches.json'), '[]');
+    assert.deepEqual(loadSearches(), []);
+    await writeFile(join(dir, 'searches.json'), '{broken');
+    assert.throws(() => loadSearches());
+  });
+});
+
+test('criteri e gruppi assenti o vuoti restano vuoti, senza preferenze embedded', async () => {
+  await withDataDir(async (dir) => {
+    assert.equal(loadCriteria(), '');
+    assert.deepEqual(loadFbConfig(), { groups: [], market: [] });
+    await writeFile(join(dir, 'criteria.md'), '');
+    await writeFile(join(dir, 'facebook.json'), JSON.stringify({ groups: [], market: [] }));
+    assert.equal(loadCriteria(), '');
+    assert.deepEqual(loadFbConfig(), { groups: [], market: [] });
   });
 });
 

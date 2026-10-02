@@ -50,7 +50,8 @@ async function repairOne(rec: { listing: { thumb?: string | null }; photos: stri
 }
 
 async function main(): Promise<void> {
-  const store = await ListingStore.load();
+  const store = await ListingStore.load(undefined, { exclusive: !dry });
+  try {
   const all = store.all();
   console.log(`Archivio: ${all.length} annunci${dry ? ' · DRY RUN (nessuna scrittura)' : ''}`);
 
@@ -81,6 +82,7 @@ async function main(): Promise<void> {
       dry ? '\nDry run: archivio NON modificato.' : '\nArchivio salvato.',
     ].join('\n'),
   );
+  } finally { store.close(); }
 }
 
 main().catch((e) => {

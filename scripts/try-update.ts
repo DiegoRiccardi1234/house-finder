@@ -146,8 +146,14 @@ async function main(): Promise<void> {
   // release passata quando si sta provando un cambio di struttura.
   const iDa = process.argv.indexOf('--da');
   const tagDa = iDa >= 0 ? process.argv[iDa + 1] : null;
+  const iLocal = process.argv.indexOf('--from-zip');
+  const localZip = iLocal >= 0 ? process.argv[iLocal + 1] : null;
   let zipInstallato = ZIP;
-  if (tagDa) {
+  if (localZip) {
+    await stat(localZip);
+    zipInstallato = localZip;
+    passo(`Uso il pacchetto locale${tagDa ? ` della ${tagDa}` : ''}`);
+  } else if (tagDa) {
     passo(`Scarico il pacchetto vero della ${tagDa}`);
     zipInstallato = join(base, `${tagDa}.zip`);
     const url = execFileSync(
@@ -173,9 +179,17 @@ async function main(): Promise<void> {
   // I file che l'aggiornamento NON deve toccare.
   await mkdir(join(install, 'state'), { recursive: true });
   await mkdir(join(install, 'app', 'data', 'local'), { recursive: true });
-  await writeFile(join(install, 'state', 'listings.json'), `["${SENTINELLA}"]`);
   await writeFile(join(install, '.env'), `SEGRETO=${SENTINELLA}\n`);
   await writeFile(join(install, 'app', 'data', 'local', 'criteria.md'), SENTINELLA);
+  // Lo store è un oggetto di record; la sentinella vive in un campo innocuo di un record valido.
+  await writeFile(join(install, 'state', 'listings.json'), JSON.stringify({
+    'subito:test': { key: 'subito:test', listing: { source: 'subito', id: 'test', title: SENTINELLA,
+      url: 'https://www.subito.it/annuncio-di-test', desc: '', price: 400 }, ai: null, fields: null,
+      visionSummary: null, photos: [], channel: 'subito', firstSeen: '2026-01-01T00:00:00.000Z',
+      lastSeen: '2026-01-01T00:00:00.000Z', status: 'favorite', notified: true },
+  }));
+  const preservedFiles = ['state/listings.json', '.env', 'app/data/local/criteria.md'];
+  const before = await Promise.all(preservedFiles.map((p) => readFile(join(install, p))));
 
   passo(`Fabbrico il bundle "nuovo" (versione ${VERSIONE_FINTA})`);
   estrai(ZIP, nuovo);
@@ -222,6 +236,12 @@ async function main(): Promise<void> {
     HOUSE_FINDER_RELEASES_URL: `http://127.0.0.1:${PORTA_FEED}/releases`,
     HOUSE_FINDER_TRAY: '',
     HOUSE_FINDER_UPDATED: '',
+    STATE_DIR: 'state',
+    LISTINGS_PATH: 'state/listings.json',
+    DATA_DIR: join(install, 'app', 'data'),
+    FB_STATE_PATH: 'state/fb-state.json',
+    THUMBS_DIR: 'state/thumbs',
+    INSTALL_ROOT: install,
   };
   // Dalla 1.5.0 `node.exe` sta in `app/`; prima stava in cima. Si parte con quello che c'è.
   const nodeExe = (await esiste(join(install, 'app', 'node.exe')))
@@ -258,6 +278,18 @@ async function main(): Promise<void> {
     }
     console.log(`   tornato su con la ${dopo}`);
 
+    // Il server può rispondere prima che l'updater scriva done e restituisca il lucchetto.
+    const deadline = Date.now() + 10_000;
+    let finished = false;
+    while (Date.now() < deadline) {
+      const response = await fetch(`http://127.0.0.1:${PORTA_APP}/api/update/progress`);
+      const progress = await response.json() as { step: string; busy: boolean; detail?: string };
+      if (progress.step === 'error') throw new Error(progress.detail ?? 'Updater non riuscito.');
+      if (progress.step === 'done' && !progress.busy) { finished = true; break; }
+      await sleep(250);
+    }
+    if (!finished) throw new Error('Il server è tornato, ma l\'aggiornatore non ha confermato done.');
+
     passo('Controllo cosa è cambiato e cosa no');
     const prove: Array<[string, boolean]> = [
       ['i file nuovi sono arrivati', await esiste(join(install, 'PROVA-AGGIORNAMENTO.txt'))],
@@ -274,6 +306,8 @@ async function main(): Promise<void> {
         ),
       ],
       ['il lucchetto è stato restituito', !(await esiste(join(install, 'state', 'update.lock')))],
+      ['dati personali identici byte per byte', (await Promise.all(preservedFiles.map((p) => readFile(join(install, p)))))
+        .every((contents, i) => contents.equals(before[i]!))],
     ];
     let tutteVere = true;
     for (const [nome, ok] of prove) {

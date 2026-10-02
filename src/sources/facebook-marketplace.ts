@@ -2,6 +2,7 @@ import type { BrowserContext, Page } from 'playwright';
 import type { Listing } from '../core/types.js';
 import type { FbMarketTarget } from '../config/facebook.js';
 import { gotoResilient, autoScroll } from './page-utils.js';
+import { settleFacebookContent } from './fb-load.js';
 import { parseMarketplaceId, parsePrice, smartTitle, cleanText, looksLikeListing, isShortTerm } from './fb-parse.js';
 
 interface RawCard {
@@ -28,12 +29,14 @@ export async function scrapeMarketplace(
   ctx: BrowserContext,
   targets: FbMarketTarget[],
   maxScroll: number,
+  onError?: (message: string) => void,
 ): Promise<Listing[]> {
   const out: Listing[] = [];
   for (const t of targets) {
     const page = await ctx.newPage();
     try {
       await gotoResilient(page, t.url);
+      await page.waitForSelector('a[href*="/marketplace/item/"]', { state: 'attached', timeout: 15_000 });
       // Marketplace virtualizza come il feed: estrai dopo ogni scroll e accumula (dedup per href).
       const raw: RawCard[] = [];
       const rawSeen = new Set<string>();
@@ -44,11 +47,12 @@ export async function scrapeMarketplace(
             raw.push(c);
           }
         }
+        return rawSeen.size;
       };
-      await collect();
+      await settleFacebookContent(page, collect);
       for (let i = 0; i < maxScroll; i++) {
         await autoScroll(page);
-        await collect();
+        await settleFacebookContent(page, collect);
       }
       const seen = new Set<string>();
       for (const c of raw) {
@@ -70,6 +74,7 @@ export async function scrapeMarketplace(
       console.log(`[fb-market] ${t.name}: ${raw.length} card · ${seen.size} item`);
     } catch (e) {
       console.error(`[fb-market] ${t.name} ERRORE:`, (e as Error).message);
+      onError?.(`marketplace ${t.name}: ${(e as Error).message}`);
     } finally {
       if (!page.isClosed()) await page.close();
     }

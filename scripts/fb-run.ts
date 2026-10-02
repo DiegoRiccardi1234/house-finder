@@ -21,7 +21,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const store = await ListingStore.load();
+  const store = await ListingStore.load(undefined, { exclusive: true });
+  try {
   const seedMode = store.size === 0;
   if (seedMode) console.log('⚙️  Primo run (archivio vuoto): memorizzo senza notificare.');
 
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
     }
   }
   console.log(`✅ FB fine. Notificati: ${notified} · in archivio: ${store.size}`);
+  } finally { store.close(); }
 }
 
 main().catch((e) => {

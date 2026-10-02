@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mapItem, type SubitoItem } from '../src/sources/subito.js';
+import { mapItem, parseNextData, type SubitoItem } from '../src/sources/subito.js';
 
 function item(over: Partial<SubitoItem> = {}): SubitoItem {
   return {
@@ -43,4 +43,12 @@ test('subito mapItem: prezzo/locali assenti → null (non 0)', () => {
   assert.equal(l.price, null);
   assert.equal(l.rooms, null);
   assert.equal(l.sizeSqm, null);
+});
+
+test('subito: lista vuota esplicita valida, schema mancante o illeggibile è un errore', () => {
+  const data = (originalList: SubitoItem[]) => ({ props: { pageProps: { initialState: { items: { originalList } } } } });
+  assert.deepEqual(parseNextData(data([])), []);
+  assert.equal(parseNextData(data([item()])).length, 1);
+  assert.throws(() => parseNextData({ props: { pageProps: {} } }), /originalList assente/);
+  assert.throws(() => parseNextData(data([{ subject: 'schema nuovo' }])), /nessun annuncio riconosciuto/);
 });

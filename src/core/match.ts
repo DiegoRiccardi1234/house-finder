@@ -6,6 +6,9 @@ import type { Listing, SearchProfile } from './types.js';
  * meglio avvisare (lo controllo io) che perdere un annuncio buono.
  */
 export function matches(l: Listing, p: SearchProfile): boolean {
+  // Un locale non equivale a una stanza in una casa altrui. Conserva le ricerche
+  // esplicite di stanze, ma evita offerte inequivocabili di camere nei tagli di casa.
+  if (!/stanza|camera singola/i.test(p.label) && /^\s*(?:(?:affittasi|affitto|offro)\s+)?(?:stanza|camera)\b/i.test(l.title)) return false;
   if (l.price != null && l.price > p.maxPrice) return false;
   if (p.minRooms != null && l.rooms != null && l.rooms < p.minRooms) return false;
   if (p.maxRooms != null && l.rooms != null && l.rooms > p.maxRooms) return false;

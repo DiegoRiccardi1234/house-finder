@@ -1,6 +1,7 @@
 import type { Listing, AiScore, ListingFields } from './types.js';
 import { dedupKey } from './state.js';
 import { writeFileAtomic, readJsonResilient } from './atomic.js';
+import { acquireStoreLock } from './store-lock.js';
 
 export type ListingStatus = 'new' | 'favorite' | 'dismissed' | 'contacted';
 
@@ -36,17 +37,31 @@ function unsafeKey(k: string): boolean {
 export class ListingStore {
   private items: Record<string, StoredListing>;
   private path: string;
+  private releaseLock?: () => void;
 
   private constructor(items: Record<string, StoredListing>, path: string) {
     this.items = items;
     this.path = path;
   }
 
-  static async load(path: string = process.env.LISTINGS_PATH ?? DEFAULT_PATH): Promise<ListingStore> {
+  static async load(path: string = process.env.LISTINGS_PATH ?? DEFAULT_PATH, options: { exclusive?: boolean } = {}): Promise<ListingStore> {
     // File assente → store vuoto; file corrotto → .bak o errore forte (mai wipe silenzioso).
-    const items = await readJsonResilient<Record<string, StoredListing>>(path, {});
-    return new ListingStore(items, path);
+    const release = options.exclusive ? acquireStoreLock(path) : undefined;
+    try {
+      const items = await readJsonResilient<Record<string, StoredListing>>(path, {});
+      const store = new ListingStore(items, path);
+      store.releaseLock = release;
+      return store;
+    } catch (e) { release?.(); throw e; }
   }
+
+  /** Rilascia il possesso dopo lo spegnimento ordinato; il crash lascia il PID recuperabile. */
+  close(): void { this.releaseLock?.(); this.releaseLock = undefined; }
+
+  /** Confine di durabilità: il run può annullare anche lo stato RAM se il save fallisce. */
+  checkpoint(): Record<string, StoredListing> { return structuredClone(this.items); }
+
+  restoreCheckpoint(snapshot: Record<string, StoredListing>): void { this.items = structuredClone(snapshot); }
 
   isNew(l: Listing): boolean {
     return !(dedupKey(l) in this.items);

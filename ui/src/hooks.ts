@@ -317,12 +317,16 @@ export function useRunStream(onDone: () => void) {
         // Il riepilogo arrivava e finiva nel nulla: l'unica traccia di una ricerca era una riga
         // di log. Chi la lanciava non sapeva quanti annunci fossero arrivati, né dove guardarli.
         const r = ev.summary?.results ?? [];
+        const errors = [...new Set(r.flatMap((x) => x.errors.map((message) => `${x.channel}: ${message}`)))];
+        const outcome = ev.summary.outcome ?? (errors.length ? 'partial' : 'succeeded');
         setSummary({
           nuovi: r.reduce((n, x) => n + (x.fresh ?? 0), 0),
           visti: r.reduce((n, x) => n + (x.unique ?? 0), 0),
           canali: r.length,
+          outcome,
+          errors,
         });
-        setLines((l) => [...l, '✅ Ricerca conclusa.']);
+        setLines((l) => [...l, outcome === 'succeeded' ? '✅ Ricerca conclusa.' : outcome === 'partial' ? '⚠️ Ricerca conclusa con problemi.' : '❌ Ricerca non riuscita.']);
         onDoneRef.current();
       } else if (ev.type === 'error') {
         setRunning(false);
@@ -355,7 +359,8 @@ export function useRunStream(onDone: () => void) {
       setLines(['⚠️ Una ricerca era già in corso: mi aggancio a quella.']);
     } else {
       // Un codice HTTP non dice niente a chi legge: si dice cosa fare.
-      setLines([`❌ La ricerca non è partita. Riprova; se insiste, riavvia l'app.`]);
+      const body = await r.json().catch(() => ({})) as { error?: string };
+      setLines([`❌ ${body.error ?? 'La ricerca non è partita. Riprova; se insiste, riavvia l’app.'}`]);
     }
   }, []);
 

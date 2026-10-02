@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { writeFileAtomic } from '../core/atomic.js';
 import { configReadPath, localConfigPath } from './paths.js';
 
@@ -49,7 +49,6 @@ export const EMPTY_PROFILE: Profile = { searches: [], zones: [], musts: [], note
 const PROFILE_FILE = 'profile.json';
 const SEARCHES_FILE = 'searches.json';
 const CRITERIA_FILE = 'criteria.md';
-const SPAZIO = String.fromCharCode(32);
 
 let cache: Profile | null = null;
 
@@ -91,7 +90,7 @@ export function parseZoneLines(criteria: string): { keep: string[]; avoid: strin
   const split = (s: string): string[] =>
     s
       .split(/[,;·]/)
-      .map((x) => x.replace(/\((core|ok)\)/gi, '').replace(/\.\s*$/, '').trim())
+      .map((x) => x.replace(/\.\s*$/, '').trim())
       .filter((x) => x.length > 1 && x.length < 40);
 
   /**
@@ -121,14 +120,14 @@ export function parseZoneLines(criteria: string): { keep: string[]; avoid: strin
   return { keep: uniq(keep), avoid: uniq(avoid) };
 }
 
-/** Riga per riga il blocco MUST-HAVE, senza le spiegazioni fra parentesi. */
+/** Conserva anche le spiegazioni: sono requisiti, non decorazioni. */
 export function parseMusts(criteria: string): string[] {
   const m = criteria.match(/MUST-HAVE[^\n]*:?\s*\n((?:\s*-\s*[^\n]+\n?)+)/i);
   if (!m?.[1]) return [];
   return m[1]
     .split('\n')
     .map((l) => l.replace(/^\s*-\s*/, '').trim())
-    .map((l) => l.replace(/\s*\([^)]*\)\s*/g, SPAZIO).replace(/[.;]+\s*$/, '').trim())
+    .map((l) => l.replace(/[.;]+\s*$/, '').trim())
     .filter(Boolean);
 }
 
@@ -139,13 +138,11 @@ export function parseMusts(criteria: string): string[] {
  * che sono la parte più preziosa del file e l'unica che una migrazione può distruggere per sempre.
  */
 export function parseNotes(criteria: string): string {
-  const i = criteria.search(/^\s*(NO-GO|NOTE)\b/im);
-  if (i < 0) return '';
-  return criteria
-    .slice(i)
-    // Via il pié di pagina che spiega com'è fatto il file di esempio: è documentazione, non criteri.
-    .replace(/\n---[\s\S]*$/, '')
-    .trim();
+  // Una sezione non rappresentata dal form (TIPOLOGIA, PREFERENZE, testo libero)
+  // resta nelle note, anche quando precede NO-GO. Non troncare arbitrariamente su ---.
+  const blocks = criteria.split(/(?=^[A-ZÀ-Ü][A-ZÀ-Ü -]*(?:[:—(]|\b))/m);
+  return blocks.filter((block) => !/^(?:CITTÀ|BUDGET|MUST-HAVE|ZONE)\b/i.test(block.trimStart()))
+    .join('').trim();
 }
 
 /**
@@ -239,7 +236,13 @@ export function deriveFromLegacy(searches: SearchRow[], criteria: string): Profi
     }
   }
 
-  return { searches, zones, musts: parseMusts(criteria), notes: parseNotes(criteria) };
+  const notes = parseNotes(criteria);
+  // Le condizioni scritte dentro un elenco di quartieri non sono semplici etichette.
+  // Il primo passaggio le rende visibili nelle note per la revisione, senza perderle.
+  const zoneText = zoneSection(criteria);
+  const complexZones = /\b(?:SOLO\s+se|solo\s+se|tranne|a\s+condizione)\b/.test(zoneText)
+    ? 'NOTE ZONE ORIGINALI:\n' + zoneText.trim().split('\n').map((line) => `  ${line}`).join('\n') : '';
+  return { searches, zones, musts: parseMusts(criteria), notes: [complexZones, notes].filter(Boolean).join('\n\n') };
 }
 
 // --- Scrittura -------------------------------------------------------------------------------
@@ -305,6 +308,12 @@ export function renderCriteria(p: Profile): string {
  * documentata da sempre e che i file di esempio avevano smesso di rispettare.
  */
 export async function saveProfile(p: Profile): Promise<void> {
+  // Il backup originale viene creato una sola volta: i save successivi non lo sovrascrivono.
+  const original = localConfigPath('criteria.legacy.md');
+  if (!existsSync(localConfigPath(PROFILE_FILE)) && !existsSync(original)) {
+    const text = readText(configReadPath(CRITERIA_FILE));
+    if (text) await writeFileAtomic(original, text);
+  }
   await writeFileAtomic(localConfigPath(PROFILE_FILE), JSON.stringify(p, null, 2) + '\n');
   await writeFileAtomic(localConfigPath(SEARCHES_FILE), JSON.stringify(p.searches, null, 2) + '\n');
   await writeFileAtomic(localConfigPath(CRITERIA_FILE), renderCriteria(p));

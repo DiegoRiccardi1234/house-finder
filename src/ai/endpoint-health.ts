@@ -24,9 +24,9 @@ export interface ModelHealth {
   slug: string;
   /** Almeno un endpoint con `status === 0`. */
   alive: boolean;
-  /** Max `uptime_last_5m` tra gli endpoint vivi (0 se nessuno). */
+  /** Max `uptime_last_5m` tra gli endpoint vivi; 0 anche se assente/null, non uno zero misurato. */
   uptime5m: number;
-  /** Max `uptime_last_30m` tra gli endpoint vivi (0 se nessuno). */
+  /** Max `uptime_last_30m` tra gli endpoint vivi; 0 anche se assente/null. */
   uptime30m: number;
   /** Max `throughput_last_30m` tra gli endpoint vivi (0 se sconosciuto — spesso null sui free). */
   throughput: number;
@@ -124,6 +124,17 @@ interface PenaltyEntry {
   expiresAt: number;
 }
 const penalties = new Map<string, PenaltyEntry[]>();
+let scoringTaskDepth = 0;
+
+/** Le penalità restano valide per tutto il task, anche quando supera il cooldown. */
+export function beginScoringTask(): void {
+  if (scoringTaskDepth === 0) clearPenalties();
+  scoringTaskDepth++;
+}
+
+export function endScoringTask(): void {
+  scoringTaskDepth = Math.max(0, scoringTaskDepth - 1);
+}
 
 /** Orologio iniettabile: i test sui cooldown non possono aspettare un'ora. */
 let now: () => number = () => Date.now();
@@ -146,7 +157,7 @@ export function penaltyScore(slug: string): number {
   let sum = 0;
   let alive = 0;
   for (const p of list) {
-    if (p.expiresAt > t) {
+    if (scoringTaskDepth > 0 || p.expiresAt > t) {
       sum += p.weight;
       alive++;
     }
@@ -195,7 +206,7 @@ export interface RankOptions {
  *    (Fasce relative al best → nessun artefatto di bordo tipo 99.9 vs 100.0.)
  *  - Candidati a salute SCONOSCIUTA (nessuna entry in `healths`): tenuti in coda, ordine-seed.
  *  - Candidati NOTI ma non-sani (morti / sotto soglia): scartati.
- *  - Se il risultato è vuoto → ritorna i candidati originali invariati (fallback totale).
+ *  - Salute sconosciuta → candidati invariati; tutti noti e non-sani → lista vuota.
  */
 export function rankHealthy(
   candidates: string[],
@@ -229,7 +240,7 @@ export function rankHealthy(
   });
 
   const ranked = [...healthy, ...unknown];
-  return ranked.length ? ranked : candidates;
+  return ranked;
 }
 
 /**
@@ -242,7 +253,7 @@ export function rankHealthy(
  *  5. **`:free`** come tie-break;
  *  6. il **più veloce** tra i capaci (`throughput`, spesso 0 sui free);
  *  7. **ordine-seed** (preferenza-pool).
- * Candidati a salute sconosciuta in coda; se tutto viene scartato → candidati invariati (fallback).
+ * Candidati a salute sconosciuta in coda; quelli esclusi non vengono reintrodotti.
  */
 export function rankModels(candidates: string[], healths: Map<string, ModelHealth>, opts: RankOptions = {}): string[] {
   const minUptime = opts.minUptime ?? DEFAULT_MIN_UPTIME;
@@ -287,8 +298,10 @@ export function rankModels(candidates: string[], healths: Map<string, ModelHealt
     return 0;
   });
 
-  const ranked = [...eligible, ...unknown];
-  return ranked.length ? ranked : candidates;
+  // Anche i provider senza sonda pubblica imparano dai fallimenti del task.
+  // Senza penalità la lista sconosciuta conserva esattamente l'ordine originale.
+  unknown.sort((a, b) => penaltyOf(a) - penaltyOf(b));
+  return [...eligible, ...unknown];
 }
 
 /** I/O: interroga /endpoints per uno slug. Timeout 5s (un fetch appeso non deve bloccare il run). Mai lancia. */

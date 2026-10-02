@@ -22,7 +22,7 @@ async function setup() {
   store.upsert(L('2', { source: 'subito', url: 'https://subito.it/x-2.htm', price: 400 }), now, { channel: 'subito', ai: { score: 40, verdict: 'meh', pros: [], cons: [], worthVisit: false } });
   await store.save();
   const paths = { criteria: join(dir, 'criteria.md'), searches: join(dir, 'searches.json'), facebook: join(dir, 'facebook.json') };
-  const app = createApp({ store, runPipeline: async () => ({ runId: 'r', channels: [], results: [], startedAt: '', finishedAt: '' }), configPaths: paths });
+  const app = createApp({ store, profileConfigured: () => true, runPipeline: async () => ({ runId: 'r', channels: [], results: [], startedAt: '', finishedAt: '' }), configPaths: paths });
   return { dir, store, app, paths };
 }
 
@@ -124,7 +124,7 @@ test('POST /api/runs: 202 + 409 se occupato', async () => {
   const store = await ListingStore.load(join(dir, 'listings.json'));
   let release: (s: RunSummary) => void = () => {};
   const pending = new Promise<RunSummary>((r) => (release = r));
-  const app = createApp({ store, runPipeline: () => pending });
+  const app = createApp({ store, profileConfigured: () => true, runPipeline: () => pending });
 
   const first = await request(app).post('/api/runs').send({ channels: ['email'] });
   assert.equal(first.status, 202);
@@ -141,12 +141,30 @@ test('POST /api/runs: 202 + 409 se occupato', async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test('primo avvio: canali indisponibili e API rifiuta run senza chiamare la pipeline', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'tc-no-profile-'));
+  try {
+    const store = await ListingStore.load(join(dir, 'listings.json'));
+    let called = false;
+    const app = createApp({ store, profileConfigured: () => false, runPipeline: async () => {
+      called = true;
+      throw new Error('non deve partire');
+    } });
+    const meta = await request(app).get('/api/meta');
+    assert.ok(meta.body.channels.every((c: { available: boolean; reason: string }) => !c.available && c.reason.includes('ricerca non configurata')));
+    const run = await request(app).post('/api/runs').send({ channels: ['subito'] });
+    assert.equal(run.status, 400);
+    assert.equal(run.body.code, 'PROFILE_NOT_CONFIGURED');
+    assert.equal(called, false);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test('endpoint distruttivi: 409 mentre una run è in corso', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'tc-guard-'));
   const store = await ListingStore.load(join(dir, 'listings.json'));
   let release: (s: RunSummary) => void = () => {};
   const pending = new Promise<RunSummary>((r) => (release = r));
-  const app = createApp({ store, runPipeline: () => pending });
+  const app = createApp({ store, profileConfigured: () => true, runPipeline: () => pending });
 
   const started = await request(app).post('/api/runs').send({ channels: ['email'] });
   assert.equal(started.status, 202);

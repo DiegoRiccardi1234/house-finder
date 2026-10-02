@@ -90,7 +90,7 @@ export function RunPanel({
             variant="primary"
             onClick={() => start(usable)}
             loading={running}
-            disabled={usable.length === 0}
+            disabled={usable.length === 0 || !meta?.profileConfigured}
             className="mt-2 w-full"
           >
             {running ? 'Scansione in corso' : 'Cerca adesso'}
@@ -110,9 +110,13 @@ export function RunPanel({
       <div className="flex flex-col gap-4">
         {summary && !running && (
           <Alert
-            tone={summary.nuovi > 0 ? 'ok' : 'info'}
+            tone={summary.outcome === 'failed' ? 'danger' : summary.outcome === 'partial' ? 'warn' : summary.nuovi > 0 ? 'ok' : 'info'}
             title={
-              summary.nuovi > 0
+              summary.outcome === 'failed'
+                ? 'Ricerca non riuscita'
+                : summary.outcome === 'partial'
+                  ? `Ricerca parziale · ${summary.nuovi} annunci nuovi`
+                  : summary.nuovi > 0
                 ? `${summary.nuovi} annunci nuovi`
                 : 'Nessun annuncio nuovo questa volta'
             }
@@ -125,6 +129,11 @@ export function RunPanel({
             }
           >
             {summary.visti} annunci letti in totale su {summary.canali} canali.
+            {summary.errors.length > 0 && (
+              <ul className="mt-2 list-disc pl-4">
+                {summary.errors.map((message) => <li key={message}>{message}</li>)}
+              </ul>
+            )}
           </Alert>
         )}
 

@@ -22,6 +22,7 @@ data/local/
 # Quaderni di lavoro locali (contengono note operative e riferimenti personali).
 APPUNTI.md
 HANDOFF.md
+.giorno-notte/
 
 # UI (build Vite) + bundle di release
 ui/dist/

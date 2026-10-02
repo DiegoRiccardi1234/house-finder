@@ -89,9 +89,9 @@ test('rankHealthy: soglia uptime esclude i sani troppo bassi', () => {
   assert.deepEqual(rankHealthy(['a', 'b'], healths, { minUptime: 90 }), ['a']);
 });
 
-test('rankHealthy: risultato vuoto → passthrough dei candidati originali', () => {
+test('rankHealthy: tutti noti sotto soglia → nessun candidato', () => {
   const healths = new Map([H('a', true, 50)].map((h) => [h.slug, h])); // sotto soglia, nessun unknown
-  assert.deepEqual(rankHealthy(['a'], healths, { minUptime: 90 }), ['a']);
+  assert.deepEqual(rankHealthy(['a'], healths, { minUptime: 90 }), []);
 });
 
 test('rankHealthy: nessuna salute nota (rete giù) → ordine invariato', () => {

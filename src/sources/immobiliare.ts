@@ -71,6 +71,19 @@ export function mapResult(r: ImmResult): Listing | null {
   };
 }
 
+/** Le query Next possono cambiare ordine: cerca la lista esplicita dei risultati. */
+export function parseNextData(data: ImmNextData | null): Listing[] {
+  const queries = data?.props?.pageProps?.dehydratedState?.queries;
+  const results = Array.isArray(queries)
+    ? queries.find((q) => Array.isArray(q?.state?.data?.results))?.state?.data?.results
+    : undefined;
+  if (!Array.isArray(results)) throw new Error('immobiliare: results assente o non valida (struttura cambiata o blocco silenzioso)');
+  const listings = results.map((r) => r && typeof r === 'object' ? mapResult(r) : null)
+    .filter((l): l is Listing => l !== null);
+  if (results.length && !listings.length) throw new Error('immobiliare: lista presente ma nessun annuncio riconosciuto (struttura cambiata)');
+  return listings;
+}
+
 export const immobiliare: Source = {
   name: 'immobiliare',
 
@@ -89,8 +102,7 @@ export const immobiliare: Source = {
       await assertNotBlocked(page); // blocco anti-bot → errore esplicito, non "0 risultati"
       const data = await readNextData<ImmNextData>(page);
       if (!data) throw new Error('immobiliare: __NEXT_DATA__ assente (struttura cambiata o blocco silenzioso)');
-      const results = data?.props?.pageProps?.dehydratedState?.queries?.[0]?.state?.data?.results ?? [];
-      return results.map(mapResult).filter((l): l is Listing => l !== null);
+      return parseNextData(data);
     } finally {
       await page.close();
     }

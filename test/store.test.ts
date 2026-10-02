@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rm, writeFile, readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { acquireStoreLock } from '../src/core/store-lock.js';
 import { ListingStore } from '../src/core/store.js';
 import { dedupKey } from '../src/core/state.js';
 import type { Listing, ListingFields } from '../src/core/types.js';
@@ -181,3 +183,32 @@ function makeStored() {
     notified: false,
   };
 }
+
+test('possesso esclusivo archivio: un processo concorrente non può aprirlo per scrivere', async () => {
+  const path = tmpPath();
+  const first = await ListingStore.load(path, { exclusive: true });
+  try {
+    const script = `import { ListingStore } from './src/core/store.ts';
+      try { const store = await ListingStore.load(process.argv[1], { exclusive: true }); store.close(); process.exitCode=2; }
+      catch (e) { if (!e.message.includes('Archivio già in uso')) throw e; }`;
+    const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script, path], {
+      cwd: process.cwd(), encoding: 'utf8', windowsHide: true, timeout: 10000,
+    });
+    assert.equal(child.status, 0, child.stderr);
+  } finally { first.close(); }
+  const second = await ListingStore.load(path, { exclusive: true });
+  second.close();
+});
+
+test('lock di processo morto recuperabile; lock malformato conservato', async () => {
+  const path = tmpPath();
+  try {
+    await writeFile(path + '.lock', JSON.stringify({ pid: 2147483647, token: 'old' }));
+    const release = acquireStoreLock(path);
+    release();
+    await assert.rejects(readFile(path + '.lock'), { code: 'ENOENT' });
+    await writeFile(path + '.lock', '{}');
+    assert.throws(() => acquireStoreLock(path), /non valido/);
+    assert.equal(await readFile(path + '.lock', 'utf8'), '{}');
+  } finally { await rm(path + '.lock', { force: true }); }
+});

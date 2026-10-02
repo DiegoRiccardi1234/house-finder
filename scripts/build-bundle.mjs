@@ -21,7 +21,7 @@
  * Uso: node scripts/build-bundle.mjs
  */
 import { execFileSync } from 'node:child_process';
-import { cp, mkdir, rm, writeFile, readFile, stat } from 'node:fs/promises';
+import { cp, mkdir, readdir, rm, writeFile, readFile, stat } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -317,6 +317,28 @@ async function main() {
     ),
   );
   if (!lanciatori.some(Boolean)) throw new Error('Pacchetto senza lanciatore — build interrotta.');
+
+  step('Verifica esclusione dei dati personali');
+  const top = await readdir(STAGE);
+  if (top.some((name) => !['app', 'HouseFinder.exe', 'HouseFinder.vbs', 'LEGGIMI.txt'].includes(name))) {
+    throw new Error('Il bundle contiene file estranei alla distribuzione.');
+  }
+  for (const rel of ['.env', '.env.local', 'state', 'app/.env', 'app/.env.local', 'app/state', 'app/data/local']) {
+    const exists = await stat(join(STAGE, rel)).then(() => true).catch((e) => {
+      if (e.code !== 'ENOENT') throw e;
+      return false;
+    });
+    if (exists) throw new Error(`Dato personale nel bundle: ${rel} — build interrotta.`);
+  }
+  const exampleSearches = JSON.parse(await readFile(join(APP, 'data', 'searches.json'), 'utf8'));
+  const exampleFb = JSON.parse(await readFile(join(APP, 'data', 'facebook.json'), 'utf8'));
+  const exampleCriteria = await readFile(join(APP, 'data', 'criteria.md'), 'utf8');
+  if (!Array.isArray(exampleSearches) || exampleSearches.length !== 0 ||
+      !/^ESEMPIO\b/.test(exampleCriteria) ||
+      !Array.isArray(exampleFb.groups) || exampleFb.groups.some((g) =>
+        !/\/groups\/(?:0000\d+|esempio-[a-z-]+)\//.test(g.url))) {
+    throw new Error('La configurazione distribuita non è un esempio generico — build interrotta.');
+  }
 
   step('Creazione dello zip');
   const zip = join(DIST, 'HouseFinder-windows.zip');

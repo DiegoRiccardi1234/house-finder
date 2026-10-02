@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-02
+
+### Fixed
+
+- Empty searches cannot start a scan or activate example cities. Legacy search requirements
+  retain explanations and free-text sections when converted to the profile editor.
+- Scan summaries report source, AI and persistence failures. Unrecognized portal layouts and
+  suspicious email alerts are reported instead of silently appearing as empty searches.
+- Facebook collects posts while waiting for delayed feed updates after navigation and scrolling.
+- Incomplete AI batches retain valid results and retry missing listings. Models with known
+  unhealthy endpoints stay excluded, and runtime penalties last for the entire scan.
+- Listings without an AI evaluation are retried on subsequent scans without losing user status.
+- The app and CLI acquire exclusive ownership of the archive to prevent competing writers.
+- Search and AI information refresh immediately after saving configuration.
+- Studios and single rooms remain distinct in the search editor. Whole-home searches exclude
+  listings explicitly advertising individual rooms.
+- Startup loads environment settings before application modules and handles the bundle layout.
+- New installations leave email and AI credentials empty instead of treating example keys as configured.
+- Updates verify the new server version before reporting success and restore application files
+  after failed replacement or restart, while preserving personal configuration and listings.
+- Updates cannot start during an active scan.
+
+### Changed
+
+- Release builds run server/UI checks and verify version consistency before packaging.
+- Unit checks cover Windows as well as Linux. Personal configuration remains excluded from bundles.
+
 ## [1.7.0] - 2026-08-02
 
 ### Fixed

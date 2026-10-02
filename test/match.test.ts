@@ -36,6 +36,14 @@ test('locali sconosciuti non escludono', () => {
   assert.equal(matches(listing({ price: 600, rooms: null }), bilocale), true);
 });
 
+test('monolocale intero distinto da stanza singola, senza escludere case con camere', () => {
+  const mono = { ...bilocale, label: 'Monolocale', minRooms: 1, maxRooms: 1 };
+  assert.equal(matches(listing({ title: 'Stanza singola in bilocale', rooms: 1 }), mono), false);
+  assert.equal(matches(listing({ title: 'Monolocale arredato', rooms: 1 }), mono), true);
+  assert.equal(matches(listing({ title: 'Stanza singola', rooms: 1 }), { ...mono, label: 'Stanza singola' }), true);
+  assert.equal(matches(listing({ title: 'Appartamento con due camere separate', rooms: 3 }), { ...bilocale, minRooms: 3, maxRooms: undefined }), true);
+});
+
 test('isResidential: scarta posti auto/box/garage', () => {
   assert.equal(isResidential(listing({ title: 'Appartamento Bari [LocazionepostoautoARG]' })), false);
   assert.equal(isResidential(listing({ title: 'Posto auto coperto in centro' })), false);

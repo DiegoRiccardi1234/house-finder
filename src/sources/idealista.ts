@@ -69,6 +69,13 @@ export function mapRaw(r: RawCard): Listing | null {
   };
 }
 
+/** Senza card o un segnale di pagina vuota verificato dal vivo, non dichiarare successo. */
+export function mapCards(raw: RawCard[]): Listing[] {
+  const listings = raw.map(mapRaw).filter((l): l is Listing => l !== null);
+  if (!listings.length) throw new Error('idealista: nessuna card riconosciuta (pagina vuota non verificata, struttura cambiata o blocco silenzioso)');
+  return listings;
+}
+
 /** Testo completo dalla pagina dettaglio: descrizione + scheda (piano/classe/ascensore). Best-effort. */
 async function fetchDetail(ctx: BrowserContext, url: string): Promise<string | null> {
   const page = await ctx.newPage();
@@ -128,7 +135,7 @@ export const idealista: Source = {
           return { id: el.getAttribute('data-element-id'), href, title, priceText, details, description, img };
         });
       });
-      listings = raw.map(mapRaw).filter((l): l is Listing => l !== null);
+      listings = mapCards(raw);
     } finally {
       await page.close();
     }

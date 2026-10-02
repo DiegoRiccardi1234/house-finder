@@ -13,11 +13,13 @@
  *
  * Non si lancia a mano: lo lancia l'app quando si preme "Aggiorna ora".
  */
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { isWritable, isDir, syncInstallDir } from '../src/update/sync.js';
+import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { join, resolve, sep } from 'node:path';
+import { tmpdir } from 'node:os';
+import { isWritable, isDir, syncInstallDir, snapshotInstall, restoreInstall,
+  validateBundleTree, validateArchiveEntries, type InstallSnapshot } from '../src/update/sync.js';
 import { releaseLock, startHeartbeat } from '../src/update/lock.js';
 import { writeEvent } from '../src/update/events.js';
 
@@ -36,7 +38,7 @@ const UNLOCK_TIMEOUT_MS = 30_000;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-interface Args {
+export interface Args {
   root: string;
   zip: string;
   state: string;
@@ -61,7 +63,7 @@ export function parseArgs(argv: string[]): Args | null {
   const temp = get('temp');
   const parentPid = Number(get('parent-pid') ?? '0');
   const version = get('version') ?? '';
-  if (!root || !zip || !state || !temp || !parentPid) return null;
+  if (!root || !zip || !state || !temp || !Number.isInteger(parentPid) || parentPid <= 0 || !version) return null;
   return { root, zip, state, temp, parentPid, version, relaunch };
 }
 
@@ -104,8 +106,9 @@ async function attendiPadre(pid: number): Promise<boolean> {
   while (Date.now() < scadenza) {
     try {
       process.kill(pid, 0);
-    } catch {
-      return true;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ESRCH') return true;
+      throw e;
     }
     await sleep(250);
   }
@@ -126,6 +129,16 @@ async function attendiSbloccoNodeExe(root: string): Promise<void> {
 }
 
 function estrai(zip: string, dest: string): void {
+  let entries: string[];
+  try {
+    entries = execFileSync('tar', ['-tf', zip], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, windowsHide: true }).split(/\r?\n/).filter(Boolean);
+  } catch {
+    const escaped = zip.replace(/'/g, "''");
+    const command = `Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::OpenRead('${escaped}'); try { $z.Entries | ForEach-Object { $_.FullName } } finally { $z.Dispose() }`;
+    entries = execFileSync('powershell', ['-NoProfile', '-Command', command],
+      { encoding: 'utf8', windowsHide: true, maxBuffer: 32 * 1024 * 1024 }).split(/\r?\n/).filter(Boolean);
+  }
+  validateArchiveEntries(entries);
   try {
     execFileSync('tar', ['-xf', zip, '-C', dest], { stdio: 'ignore', windowsHide: true });
   } catch {
@@ -134,7 +147,7 @@ function estrai(zip: string, dest: string): void {
       [
         '-NoProfile',
         '-Command',
-        `Expand-Archive -Path '${zip}' -DestinationPath '${dest}' -Force`,
+        `Expand-Archive -LiteralPath '${zip.replace(/'/g, "''")}' -DestinationPath '${dest.replace(/'/g, "''")}' -Force`,
       ],
       { stdio: 'ignore', windowsHide: true },
     );
@@ -178,7 +191,7 @@ function nodeDaUsare(root: string): string {
   return existsSync(dentro) ? dentro : join(root, 'node.exe');
 }
 
-function riavvia(root: string, args: string[] = []): void {
+async function riavvia(root: string, args: string[] = []): Promise<ChildProcess> {
   const child = spawn(nodeDaUsare(root), [join(root, 'app', 'scripts', 'serve.js'), ...args], {
     cwd: root,
     detached: true,
@@ -186,19 +199,130 @@ function riavvia(root: string, args: string[] = []): void {
     stdio: 'ignore',
     env: { ...process.env, HOUSE_FINDER_UPDATED: '1' },
   });
+  await new Promise<void>((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', reject);
+  });
   child.unref();
+  return child;
 }
 
 /** Si cancella la propria cartella temporanea, ma solo dopo essere uscito. */
 function autopulizia(temp: string): void {
   try {
-    spawn('cmd', ['/c', `timeout /t 6 /nobreak >nul & rmdir /s /q "${temp}"`], {
+    const target = resolve(temp);
+    const allowed = join(resolve(tmpdir()), 'house-finder-updater-').toLowerCase();
+    if (!target.toLowerCase().startsWith(allowed) || target.slice(allowed.length).includes(sep)) return;
+    const escaped = target.replace(/'/g, "''");
+    spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command',
+      `Start-Sleep -Seconds 6; Remove-Item -LiteralPath '${escaped}' -Recurse -Force`], {
       detached: true,
       windowsHide: true,
       stdio: 'ignore',
     }).unref();
   } catch {
     // Resterà a Storage Sense: è un fastidio, non un guasto.
+  }
+}
+
+export async function waitForVersion(version: string, child: Pick<ChildProcess, 'exitCode' | 'signalCode'>,
+  opts: { timeoutMs?: number; fetchImpl?: typeof fetch; sleepImpl?: (ms: number) => Promise<void> } = {}): Promise<void> {
+  const deadline = Date.now() + (opts.timeoutMs ?? 60_000);
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error('Il programma si è chiuso durante il riavvio.');
+    try {
+      const response = await (opts.fetchImpl ?? fetch)(`http://127.0.0.1:${process.env.PORT ?? '3000'}/api/meta`, {
+        signal: AbortSignal.timeout(1500),
+      });
+      const body = response.ok ? await response.json() as { version?: string } : null;
+      if (body?.version?.replace(/^v/, '') === version.replace(/^v/, '')) return;
+    } catch { /* il server sta ancora partendo */ }
+    await (opts.sleepImpl ?? sleep)(500);
+  }
+  throw new Error(`Il programma non risponde con la versione attesa ${version}.`);
+}
+
+async function stopRelaunched(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill();
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Il programma nuovo non si è spento: ripristino rinviato.')), 10_000);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+  });
+}
+
+export interface UpdateRuntime {
+  waitParent: (pid: number) => Promise<boolean>;
+  pause: (ms: number) => Promise<void>;
+  waitUnlocked: (root: string) => Promise<void>;
+  extract: (zip: string, dest: string) => void;
+  restart: (root: string, args: string[]) => Promise<ChildProcess>;
+  confirm: (version: string, child: ChildProcess) => Promise<void>;
+  stop: (child: ChildProcess) => Promise<void>;
+  sync: typeof syncInstallDir;
+  cleanup: (temp: string) => void;
+}
+
+/** Testabile su cartelle temporanee, senza avviare processi o scaricare release. */
+export async function runUpdate(args: Args, overrides: Partial<UpdateRuntime> = {}): Promise<number> {
+  const runtime: UpdateRuntime = { waitParent: attendiPadre, pause: sleep, waitUnlocked: attendiSbloccoNodeExe,
+    extract: estrai, restart: riavvia, confirm: waitForVersion, stop: stopRelaunched,
+    sync: syncInstallDir, cleanup: autopulizia, ...overrides };
+  const stopHeartbeat = startHeartbeat(args.state, args.version);
+  const estratti = join(args.temp, 'estratti');
+  let parentExited = false;
+  let snapshot: InstallSnapshot | null = null;
+  let relaunched: ChildProcess | null = null;
+  let replacementStarted = false;
+  let keepBackup = false;
+  let previousVersion: string | undefined;
+  try {
+    writeEvent(args.state, { step: 'replace', pct: 70, detail: 'attendo la chiusura dell\'app' });
+    parentExited = await runtime.waitParent(args.parentPid);
+    if (!parentExited) throw new Error('L\'app non si è chiusa entro il timeout: aggiornamento annullato.');
+    await runtime.pause(RESPIRO_MS);
+    await runtime.waitUnlocked(args.root);
+    await mkdir(estratti, { recursive: true });
+    runtime.extract(args.zip, estratti);
+    const source = await radice(estratti);
+    await validateBundleTree(source, args.version);
+    previousVersion = (await readFile(join(args.root, 'app', 'src', 'version.js'), 'utf8'))
+      .match(/export\s+const\s+APP_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1];
+    if (!previousVersion) throw new Error('Non riconosco la versione installata: aggiornamento annullato.');
+    snapshot = await snapshotInstall(source, args.root, join(args.temp, 'backup'));
+    writeEvent(args.state, { step: 'replace', pct: 78, detail: 'sostituisco i file' });
+    replacementStarted = true;
+    const result = await runtime.sync(source, args.root, { currentExe: process.execPath });
+    writeEvent(args.state, { step: 'replace', pct: 90, detail: `${result.written} file aggiornati` });
+    writeEvent(args.state, { step: 'restart', pct: 95, detail: 'riavvio e verifico la versione' });
+    relaunched = await runtime.restart(args.root, args.relaunch);
+    await runtime.confirm(args.version, relaunched);
+    writeEvent(args.state, { step: 'done', pct: 100, detail: `aggiornato alla ${args.version}` });
+    await rm(args.zip, { force: true }).catch(() => {});
+    return 0;
+  } catch (e) {
+    let detail = e instanceof Error ? e.message : String(e);
+    try {
+      if (relaunched) await runtime.stop(relaunched);
+      if (replacementStarted && snapshot) {
+        await restoreInstall(snapshot);
+        detail += ' Versione precedente ripristinata.';
+      }
+      if (parentExited) {
+        const previous = await runtime.restart(args.root, args.relaunch);
+        if (replacementStarted && previousVersion) await runtime.confirm(previousVersion, previous);
+      }
+    } catch (rollbackError) {
+      keepBackup = replacementStarted;
+      detail += ` ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`;
+      if (keepBackup) detail += ` Backup conservato in ${join(args.temp, 'backup')}.`;
+    }
+    writeEvent(args.state, { step: 'error', pct: 0, detail });
+    return 1;
+  } finally {
+    stopHeartbeat();
+    releaseLock(args.state);
+    if (!keepBackup) runtime.cleanup(args.temp);
   }
 }
 
@@ -209,51 +333,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const stopHeartbeat = startHeartbeat(args.state, args.version);
-  const estratti = join(args.temp, 'estratti');
-
-  try {
-    writeEvent(args.state, { step: 'replace', pct: 70, detail: 'attendo la chiusura dell\'app' });
-    await attendiPadre(args.parentPid);
-    await sleep(RESPIRO_MS);
-    await attendiSbloccoNodeExe(args.root);
-
-    await mkdir(estratti, { recursive: true });
-    estrai(args.zip, estratti);
-    const sorgente = await radice(estratti);
-
-    writeEvent(args.state, { step: 'replace', pct: 78, detail: 'sostituisco i file' });
-    const esito = await syncInstallDir(sorgente, args.root, { currentExe: process.execPath });
-    writeEvent(args.state, {
-      step: 'replace',
-      pct: 90,
-      detail: `${esito.written} file aggiornati`,
-    });
-
-    writeEvent(args.state, { step: 'restart', pct: 95, detail: 'riavvio House Finder' });
-    riavvia(args.root, args.relaunch);
-
-    writeEvent(args.state, { step: 'done', pct: 100, detail: `aggiornato alla ${args.version}` });
-    stopHeartbeat();
-    releaseLock(args.state);
-    await rm(args.zip, { force: true }).catch(() => {});
-    autopulizia(args.temp);
-    return 0;
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    writeEvent(args.state, { step: 'error', pct: 0, detail: msg });
-    stopHeartbeat();
-    releaseLock(args.state);
-    // Meglio un'app che riparte di una macchina rimasta senza niente: Job e Trip Finder qui si
-    // fermano, e chi ha subìto il guasto resta con l'installazione spenta e nessun indizio.
-    try {
-      riavvia(args.root, args.relaunch);
-    } catch {
-      /* se non riparte, il diario dice perché */
-    }
-    autopulizia(args.temp);
-    return 1;
-  }
+  return runUpdate(args);
 }
 
 // Parte solo se lanciato, non se importato: `test/update-updater.test.ts` legge da qui, e un

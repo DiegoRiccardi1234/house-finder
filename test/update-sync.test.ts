@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { COPY_RETRY_DELAYS_MS, syncInstallDir } from '../src/update/sync.js';
+import { COPY_RETRY_DELAYS_MS, syncInstallDir, validateArchiveEntries } from '../src/update/sync.js';
 import { isPreserved, PRESERVE } from '../src/config/install.js';
 
 /**
@@ -142,4 +142,15 @@ test('la lista dei protetti riconosce i percorsi annidati', () => {
   assert.equal(isPreserved('app/data/criteria.md'), false);
   assert.equal(isPreserved('state/listings.json'), true);
   assert.equal(isPreserved('stateful.js'), false);
+});
+
+test('la validazione zip rifiuta traversal e richiede tutti i file di avvio nel medesimo layout', () => {
+  const required = ['app/package.json', 'app/scripts/serve.js', 'app/scripts/updater.js',
+    'app/src/version.js', 'app/ui/dist/index.html', 'app/node_modules/express/package.json'];
+  assert.doesNotThrow(() => validateArchiveEntries([...required, 'node.exe']));
+  assert.doesNotThrow(() => validateArchiveEntries([...required, 'app/node.exe'].map((s) => `HouseFinder/${s}`)));
+  for (const invalid of ['../../other.txt', '/absolute.txt', 'C:/outside.txt', 'HouseFinder/app/../other.txt', 'HouseFinder/.env.']) {
+    assert.throws(() => validateArchiveEntries([...required, 'app/node.exe', invalid]), /Percorso non valido/);
+  }
+  assert.throws(() => validateArchiveEntries(['app/scripts/serve.js', 'app/node.exe']), /incompleto/);
 });

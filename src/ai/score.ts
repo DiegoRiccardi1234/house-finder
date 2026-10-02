@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { AiScore, ContactType, Furnished, Listing, ListingFields } from '../core/types.js';
 import { dedupKey } from '../core/state.js';
 import { loadCriteria } from '../config/criteria.js';
-import { recordPenalty, clearPenalties } from './endpoint-health.js';
+import { recordPenalty, beginScoringTask, endScoringTask } from './endpoint-health.js';
 import { buildChainForTask } from './failover.js';
 import { configuredProviders, markKeyInvalid } from './credentials.js';
 import { getProvider } from './providers/registry.js';
@@ -149,19 +149,27 @@ async function callModel(ref: ModelRef, listings: Listing[]): Promise<Map<string
       { role: 'user', content: buildPrompt(listings) },
     ],
   });
-  return parseScoreResponse(reply.text);
+  return parseScoreResponse(reply.text, new Set(listings.map(dedupKey)));
 }
 
 /**
  * Parsa la risposta (eventualmente "sporca") del modello in una mappa id→ScoreResult.
  * Tollerante: estrae il primo blocco JSON, scarta gli item malformati uno a uno. Esportata per i test.
  */
-export function parseScoreResponse(content: string): Map<string, ScoreResult> {
+export function parseScoreResponse(content: string, expectedIds?: ReadonlySet<string>): Map<string, ScoreResult> {
   const parsed = Batch.parse(extractJson(content));
   const map = new Map<string, ScoreResult>();
+  const seen = new Set<string>();
   for (const raw of parsed.scores) {
     const r = Item.safeParse(raw);
-    if (r.success && r.data.id) map.set(r.data.id, toResult(r.data));
+    if (!r.success || !r.data.id || (expectedIds && !expectedIds.has(r.data.id))) continue;
+    const id = r.data.id;
+    if (seen.has(id)) {
+      map.delete(id); // ID ambiguo: rivalutalo anziché scegliere uno dei duplicati.
+      continue;
+    }
+    seen.add(id);
+    map.set(id, toResult(r.data));
   }
   return map;
 }
@@ -177,20 +185,30 @@ async function callChunk(listings: Listing[], chain: ModelRef[], log: LogFn = ()
     log(m); // visibile anche nella UI (SSE)
   };
   const MAX_ATTEMPTS = 2; // solo per errori transitori (5xx/rete)
+  const out = new Map<string, ScoreResult>();
+  let pending = listings;
+  const invalidProviders = new Set<ModelRef['provider']>();
   for (const ref of chain) {
+    if (invalidProviders.has(ref.provider)) continue;
     const label = `${ref.provider}/${ref.model}`;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        const map = await callModel(ref, listings);
+        const map = await callModel(ref, pending);
         if (map.size === 0) {
           recordPenalty(refKey(ref), 'empty');
           warn(`AI [${label}] risposta VUOTA → penalizzo, passo al prossimo`);
           break;
         }
-        return map;
+        for (const [key, value] of map) out.set(key, value);
+        pending = pending.filter((l) => !out.has(dedupKey(l)));
+        if (!pending.length) return out;
+        recordPenalty(refKey(ref), 'json_fail');
+        warn(`AI [${label}] risposta PARZIALE: ${pending.length} annunci mancanti → passo al prossimo solo per questi`);
+        break;
       } catch (e) {
         if (e instanceof InvalidKeyError) {
           markKeyInvalid(ref.provider);
+          invalidProviders.add(ref.provider);
           warn(`AI [${label}] key rifiutata → salto il provider`);
           break;
         }
@@ -207,7 +225,7 @@ async function callChunk(listings: Listing[], chain: ModelRef[], log: LogFn = ()
       }
     }
   }
-  return new Map();
+  return out;
 }
 
 /** Tipo minimo del log iniettabile (allineato a pipeline.LogFn). */
@@ -217,25 +235,39 @@ type LogFn = (msg: string) => void;
  * Estrae+valuta TUTTI gli annunci, a gruppi di CHUNK (una chiamata per gruppo, sequenziale).
  * Ritorna mappa id(dedupKey) → { ai, fields }. Se tutto fallisce ritorna mappa vuota (l'AI è un plus).
  */
-export async function scoreBatch(listings: Listing[], log: LogFn = () => {}): Promise<Map<string, ScoreResult>> {
+export interface ScoreOptions {
+  /** false quando la pipeline ha già aperto un task condiviso tra i canali. */
+  resetPenalties?: boolean;
+}
+
+export async function scoreBatch(
+  listings: Listing[],
+  log: LogFn = () => {},
+  opts: ScoreOptions = {},
+): Promise<Map<string, ScoreResult>> {
   if (!listings.length || !configured()) return new Map();
-  clearPenalties(); // le penalità empiriche sono per-task: reset a inizio run
-  const out = new Map<string, ScoreResult>();
-  const nChunks = Math.ceil(listings.length / CHUNK);
-  for (let i = 0; i < listings.length; i += CHUNK) {
-    const idx = Math.floor(i / CHUNK) + 1;
-    const chunk = listings.slice(i, i + CHUNK);
-    // Catena ricalcolata per chunk: riflette le penalità accumulate (health via cache, no rifetch).
-    const chain = await buildChainForTask('reasoning');
-    const head = chain[0];
-    log(
-      `[ai] valuto gruppo ${idx}/${nChunks} (${chunk.length} annunci) — modello ${head ? `${head.provider}/${head.model}` : '?'}`,
-    );
-    const m = await callChunk(chunk, chain, log);
-    log(`[ai] gruppo ${idx}/${nChunks}: ${m.size}/${chunk.length} valutati`);
-    for (const [k, v] of m) out.set(k, v);
+  const standalone = opts.resetPenalties ?? true;
+  if (standalone) beginScoringTask();
+  try {
+    const out = new Map<string, ScoreResult>();
+    const nChunks = Math.ceil(listings.length / CHUNK);
+    for (let i = 0; i < listings.length; i += CHUNK) {
+      const idx = Math.floor(i / CHUNK) + 1;
+      const chunk = listings.slice(i, i + CHUNK);
+      // Catena ricalcolata per chunk: riflette le penalità accumulate (health via cache, no rifetch).
+      const chain = await buildChainForTask('reasoning');
+      const head = chain[0];
+      log(
+        `[ai] valuto gruppo ${idx}/${nChunks} (${chunk.length} annunci) — modello ${head ? `${head.provider}/${head.model}` : '?'}`,
+      );
+      const m = await callChunk(chunk, chain, log);
+      log(`[ai] gruppo ${idx}/${nChunks}: ${m.size}/${chunk.length} valutati`);
+      for (const [k, v] of m) out.set(k, v);
+    }
+    return out;
+  } finally {
+    if (standalone) endScoringTask();
   }
-  return out;
 }
 
 function buildPrompt(listings: Listing[]): string {

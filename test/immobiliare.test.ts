@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mapResult, type ImmResult } from '../src/sources/immobiliare.js';
+import { mapResult, parseNextData, type ImmResult } from '../src/sources/immobiliare.js';
 
 function result(over: Partial<ImmResult['realEstate']> = {}): ImmResult {
   return {
@@ -46,4 +46,14 @@ test('immobiliare mapResult: firstDigits su formati sporchi', () => {
 test('immobiliare mapResult: senza url/id/realEstate → null', () => {
   assert.equal(mapResult({ seo: {}, realEstate: { id: 1 } }), null); // manca url
   assert.equal(mapResult({ seo: { url: 'x' } }), null); // manca realEstate
+});
+
+test('immobiliare: trova results anche dopo altre query; distingue lista vuota da schema cambiato', () => {
+  const data = (results: ImmResult[]) => ({ props: { pageProps: { dehydratedState: { queries: [
+    { state: { data: {} } }, { state: { data: { results } } },
+  ] } } } });
+  assert.equal(parseNextData(data([result()])).length, 1);
+  assert.deepEqual(parseNextData(data([])), []);
+  assert.throws(() => parseNextData({ props: { pageProps: {} } }), /results assente/);
+  assert.throws(() => parseNextData(data([{}])), /nessun annuncio riconosciuto/);
 });

@@ -190,7 +190,10 @@ export default function App() {
         {visited.has('config') && (
           <div hidden={view !== 'config'}>
             <ConfigView
-              onProvidersChanged={() => setMetaToken((n) => n + 1)}
+              onProvidersChanged={() => {
+                setMetaToken((n) => n + 1);
+                setRefreshToken((n) => n + 1);
+              }}
               openTab={configTab}
               meta={meta}
             />

@@ -2,6 +2,7 @@ import type { BrowserContext, Page } from 'playwright';
 import type { Listing } from '../core/types.js';
 import type { FbGroup } from '../config/facebook.js';
 import { gotoResilient, autoScroll } from './page-utils.js';
+import { settleFacebookContent } from './fb-load.js';
 import { parsePostId, parsePrice, smartTitle, cleanText, stripFbChrome, looksLikeListing, isShortTerm } from './fb-parse.js';
 
 interface RawPost {
@@ -42,6 +43,7 @@ export async function scrapeGroups(
   ctx: BrowserContext,
   groups: FbGroup[],
   maxScroll: number,
+  onError?: (message: string) => void,
 ): Promise<Listing[]> {
   const out: Listing[] = [];
   for (const g of groups) {
@@ -49,6 +51,7 @@ export async function scrapeGroups(
     try {
       const url = g.url.replace(/\/?$/, '/') + '?sorting_setting=CHRONOLOGICAL';
       await gotoResilient(page, url);
+      await page.waitForSelector('div[role="feed"] div[role="article"]', { state: 'attached', timeout: 15_000 });
       // FB VIRTUALIZZA il feed: gli article fuori schermo vengono rimossi dal DOM. Estraendo una
       // sola volta a fine scroll se ne vedono ~4. Quindi estrai DOPO OGNI scroll e accumula.
       const raw: RawPost[] = [];
@@ -61,11 +64,12 @@ export async function scrapeGroups(
             raw.push(p);
           }
         }
+        return rawSeen.size;
       };
-      await collect();
+      await settleFacebookContent(page, collect);
       for (let i = 0; i < maxScroll; i++) {
         await autoScroll(page);
-        await collect();
+        await settleFacebookContent(page, collect);
       }
       const seen = new Set<string>();
       for (const p of raw) {
@@ -88,6 +92,7 @@ export async function scrapeGroups(
       console.log(`[fb-group] ${g.name}: ${raw.length} article · ${seen.size} post con id`);
     } catch (e) {
       console.error(`[fb-group] ${g.name} ERRORE:`, (e as Error).message);
+      onError?.(`gruppo ${g.name}: ${(e as Error).message}`);
     } finally {
       if (!page.isClosed()) await page.close();
     }

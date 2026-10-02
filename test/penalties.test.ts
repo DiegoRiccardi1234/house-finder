@@ -5,9 +5,32 @@ import {
   penaltyScore,
   recordPenalty,
   setPenaltyClock,
+  beginScoringTask,
+  endScoringTask,
 } from '../src/ai/endpoint-health.js';
 
 const MIN = 60_000;
+
+test('task: penalità sticky oltre TTL e reset al task successivo', () => {
+  withClock((advance) => {
+    beginScoringTask();
+    try {
+      recordPenalty('p::m', '429');
+      advance(70 * MIN);
+      assert.equal(penaltyScore('p::m'), 1, 'il run è ancora in corso');
+    } finally {
+      endScoringTask();
+    }
+    assert.equal(penaltyScore('p::m'), 0, 'fuori task riprende il cooldown');
+    recordPenalty('p::m', 'length');
+    beginScoringTask();
+    try {
+      assert.equal(penaltyScore('p::m'), 0, 'il task nuovo riparte senza penalità');
+    } finally {
+      endScoringTask();
+    }
+  });
+});
 
 /** Orologio finto: i cooldown durano fino a un'ora, i test non possono aspettarla. */
 function withClock(fn: (advance: (ms: number) => void) => void): void {

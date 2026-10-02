@@ -7,6 +7,7 @@ import {
   openRouterProbe,
   parseModelMeta,
   penaltyScore,
+  rankHealthy,
   rankModels,
   type ModelHealth,
   type PickOptions,
@@ -66,9 +67,8 @@ function probeFor(id: ProviderId) {
  * dall'utente poteva sparire dalla catena senza che nessuno lo dicesse, e la UI avrebbe mostrato
  * una scelta che il motore ignorava.
  *
- * Una scelta esplicita vale più di un'euristica: si rimette in posizione 0. Se poi il modello
- * rifiuta davvero, il failover prosegue sugli altri come sempre — il pin decide da dove si parte,
- * non che ci si debba schiantare lì.
+ * Una scelta esplicita prevale sulle euristiche solo se la salute non è negativa e il modello
+ * non ha già fallito durante il task. Un pin morto o penalizzato non forza nuovi tentativi.
  */
 function pinFirst(ranked: string[], pinned: string | undefined): string[] {
   if (!pinned) return ranked;
@@ -104,7 +104,9 @@ async function rankedFor(
     // La penalità è per COPPIA provider+modello: lo stesso id su host diversi si comporta diversamente.
     penaltyOf: (slug) => penaltyScore(refKey({ provider: id, model: slug })),
   });
-  return pinFirst(ranked, pinned);
+  const usablePin = pinned && rankHealthy([pinned], healths, opts).length > 0
+    && penaltyScore(refKey({ provider: id, model: pinned })) === 0 ? pinned : undefined;
+  return pinFirst(ranked, usablePin);
 }
 
 export interface ModelChoice {
@@ -169,8 +171,8 @@ export async function modelsForTask(
 
 /**
  * Catena di failover pronta all'uso per il task richiesto.
- * Se tutto risulta penalizzato la catena si ricostruisce ignorando le penalità: un modello
- * penalizzato è comunque meglio di "nessun provider disponibile".
+ * I candidati a salute sconosciuta restano disponibili; quelli esclusi dalla salute nota
+ * non vengono reintrodotti con un fallback statico.
  */
 export async function buildChainForTask(
   task: 'reasoning' | 'vision',
@@ -179,13 +181,5 @@ export async function buildChainForTask(
   const order = providerOrder().filter((id) => (task === 'vision' ? specOf(id).caps.vision : true));
   const ranked: Partial<Record<ProviderId, string[]>> = {};
   for (const id of order) ranked[id] = await rankedFor(id, task, opts);
-  const chain = buildFailoverChain({ order, ranked });
-  if (chain.length > 0) return chain;
-
-  const fallback: Partial<Record<ProviderId, string[]>> = {};
-  for (const id of order) {
-    const spec = specOf(id);
-    fallback[id] = task === 'reasoning' ? spec.reasoning : spec.vision;
-  }
-  return buildFailoverChain({ order, ranked: fallback });
+  return buildFailoverChain({ order, ranked });
 }

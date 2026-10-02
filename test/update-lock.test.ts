@@ -85,6 +85,45 @@ test('POST /api/update/install risponde 409 se un aggiornamento è già in corso
   }
 });
 
+test('aggiornamento durante scansione rifiutato prima del download e del lock', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hf-running-update-'));
+  try {
+    let checked = false;
+    const app = await server(dir, async () => { checked = true; return info(); });
+    app.locals.isRunRunning = () => true;
+    const response = await request(app).post('/api/update/install').send({});
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error, 'run_in_progress');
+    assert.equal(checked, false);
+    assert.equal(readLock(dir), null);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('scansione iniziata durante check update impedisce lock e download', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hf-update-check-race-'));
+  try {
+    let running = false;
+    const app = await server(dir, async () => { running = true; return info(); });
+    app.locals.isRunRunning = () => running;
+    const response = await request(app).post('/api/update/install').send({});
+    assert.equal(response.status, 409);
+    assert.equal(response.body.error, 'run_in_progress');
+    assert.equal(readLock(dir), null);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('scansione durante aggiornamento rifiutata prima della pipeline', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hf-run-update-lock-'));
+  try {
+    const app = await server(dir, async () => info());
+    acquireLock(dir, 'v99.0.0');
+    const response = await request(app).post('/api/runs').send({ channels: ['subito'] });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.code, 'UPDATE_IN_PROGRESS');
+    assert.equal(app.locals.isRunRunning(), false);
+  } finally { releaseLock(dir); await rm(dir, { recursive: true, force: true }); }
+});
+
 test('niente da aggiornare e installazione dai sorgenti: due 409 distinti e spiegati', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hf-lock-'));
   try {

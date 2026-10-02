@@ -26,7 +26,8 @@ const LABELS: Record<ChannelId, string> = {
 };
 
 async function main(): Promise<void> {
-  const store = await ListingStore.load();
+  const store = await ListingStore.load(undefined, { exclusive: true });
+  try {
   const seedMode = store.size === 0;
   if (seedMode) console.log('⚙️  Primo run (archivio vuoto): memorizzo senza notificare.');
 
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
     }
     console.log(`Notificati: ${notified}`);
   }
+  } finally { store.close(); }
 }
 
 main().catch((e) => {

@@ -111,14 +111,23 @@ test('rankModels: il gigante diventa fallback quando lo sweet-spot è penalizzat
   clearPenalties();
 });
 
-test('rankModels: morto scartato · sconosciuto in coda · tutto-scartato→passthrough', () => {
+test('rankModels: morto scartato · sconosciuto in coda · tutti morti→vuoto', () => {
   clearPenalties();
   const alive = 'a/x-70b:free';
   const dead = 'b/y-70b:free';
   const unk = 'c/z-70b:free';
   const hs = map([H(alive), H(dead, { alive: false, uptime5m: 0, endpointCount: 0 })]);
   assert.deepEqual(rankModels([dead, alive, unk], hs), [alive, unk]); // dead fuori, unk in coda
-  // se tutti scartati → candidati invariati (fallback)
+  // Salute negativa nota: il fallback non deve resuscitare il modello.
   const allDead = map([H(dead, { alive: false, uptime5m: 0 })]);
-  assert.deepEqual(rankModels([dead], allDead), [dead]);
+  assert.deepEqual(rankModels([dead], allDead), []);
+});
+
+test('rankModels: fetch sconosciuto mantiene candidati e apprende penalità per provider', () => {
+  clearPenalties();
+  const candidates = ['a', 'b'];
+  assert.deepEqual(rankModels(candidates, new Map()), candidates);
+  recordPenalty('groq::a', 'json_fail');
+  assert.deepEqual(rankModels(candidates, new Map(), { penaltyOf: (m) => penaltyScore(`groq::${m}`) }), ['b', 'a']);
+  clearPenalties();
 });

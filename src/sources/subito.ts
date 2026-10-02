@@ -88,6 +88,16 @@ interface SubitoNextData {
   props?: { pageProps?: { initialState?: { items?: { originalList?: SubitoItem[] } } } };
 }
 
+/** Lista vuota esplicita è valida; uno schema assente non significa zero annunci. */
+export function parseNextData(data: SubitoNextData | null): Listing[] {
+  const list = data?.props?.pageProps?.initialState?.items?.originalList;
+  if (!Array.isArray(list)) throw new Error('subito: originalList assente o non valida (struttura cambiata o blocco silenzioso)');
+  const listings = list.map((item) => item && typeof item === 'object' ? mapItem(item) : null)
+    .filter((l): l is Listing => l !== null);
+  if (list.length && !listings.length) throw new Error('subito: lista presente ma nessun annuncio riconosciuto (struttura cambiata)');
+  return listings;
+}
+
 export const subito: Source = {
   name: 'subito',
 
@@ -111,8 +121,7 @@ export const subito: Source = {
       await assertNotBlocked(page); // blocco anti-bot → errore esplicito, non "0 risultati"
       const data = await readNextData<SubitoNextData>(page);
       if (!data) throw new Error('subito: __NEXT_DATA__ assente (struttura cambiata o blocco silenzioso)');
-      const list = data?.props?.pageProps?.initialState?.items?.originalList ?? [];
-      return list.map(mapItem).filter((l): l is Listing => l !== null);
+      return parseNextData(data);
     } finally {
       await page.close();
     }

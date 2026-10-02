@@ -27,6 +27,7 @@ const MUST_NOTI = ['Arredato', 'Prezzo entro il tetto', 'Ascensore', 'Balcone', 
 
 /** I tagli di casa, e cosa vogliono dire in numero di locali. */
 const TIPI = [
+  { id: 'monolocale', label: 'Monolocale', minRooms: 1, maxRooms: 1 },
   { id: 'stanza', label: 'Stanza singola', minRooms: 1, maxRooms: 1 },
   { id: 'bilocale', label: 'Bilocale', minRooms: 2, maxRooms: 2 },
   { id: 'trilocale', label: 'Trilocale', minRooms: 3, maxRooms: 3 },
@@ -39,6 +40,7 @@ type TipoId = (typeof TIPI)[number]['id'];
 
 /** Dai locali salvati si risale al taglio: il profilo continua a contenere numeri, non nomi. */
 function tipoDi(r: SearchRow): TipoId {
+  if (r.minRooms === 1 && r.maxRooms === 1 && /stanza|camera singola/i.test(r.label)) return 'stanza';
   const t = TIPI.find((x) => x.minRooms === r.minRooms && x.maxRooms === r.maxRooms);
   return t?.id ?? 'qualsiasi';
 }
@@ -108,7 +110,9 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
   const setTipo = (i: number, tipo: TipoId): void => {
     const t = TIPI.find((x) => x.id === tipo);
     if (!t) return;
-    setRiga(i, { minRooms: t.minRooms, maxRooms: t.maxRooms });
+    set({ searches: p.searches.map((row, index) => index === i
+      ? { ...row, label: etichetta(row.city, tipo), minRooms: t.minRooms, maxRooms: t.maxRooms }
+      : row) });
   };
 
   const zonaDi = (city: string): CityZones =>

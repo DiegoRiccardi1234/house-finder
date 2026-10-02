@@ -5,6 +5,7 @@ import { ListingStore, type StoredListing } from './store.js';
 import { scoreBatch, configured as aiConfigured, type ScoreResult } from '../ai/score.js';
 import { describePhotos, visionConfigured } from '../ai/vision.js';
 import { cacheThumbs, isCachedThumb, pruneThumbs } from './thumbs.js';
+import { beginScoringTask, endScoringTask } from '../ai/endpoint-health.js';
 
 /**
  * Pipeline importabile: raccoglie annunci dai canali, li de-duplica, li valuta con l'AI e
@@ -15,6 +16,7 @@ import { cacheThumbs, isCachedThumb, pruneThumbs } from './thumbs.js';
 
 export type LogFn = (msg: string) => void;
 export type ChannelId = 'email' | 'subito' | 'immobiliare' | 'idealista' | 'facebook';
+export type RunOutcome = 'succeeded' | 'partial' | 'failed';
 
 const SCRAPER_CHANNELS: ChannelId[] = ['subito', 'immobiliare', 'idealista'];
 
@@ -34,6 +36,9 @@ export interface RunResult {
   fresh: number; // nuovi rispetto all'archivio
   newRecords: StoredListing[]; // record creati come nuovi in questo run (per la notifica CLI)
   errors: string[];
+  outcome?: RunOutcome;
+  /** Non definito prima del salvataggio; false impedisce notifiche di dati non persistiti. */
+  persisted?: boolean;
 }
 
 export interface RunSummary {
@@ -42,6 +47,7 @@ export interface RunSummary {
   results: RunResult[];
   startedAt: string;
   finishedAt: string;
+  outcome?: RunOutcome;
 }
 
 function resolveLog(opts: RunOptions): LogFn {
@@ -51,7 +57,12 @@ function resolveScore(opts: RunOptions): boolean {
   return opts.score ?? aiConfigured();
 }
 function empty(channel: ChannelId, errors: string[] = []): RunResult {
-  return { channel, collected: 0, unique: 0, fresh: 0, newRecords: [], errors };
+  return { channel, collected: 0, unique: 0, fresh: 0, newRecords: [], errors, outcome: errors.length ? 'failed' : 'succeeded' };
+}
+
+function resultOutcome(result: RunResult): RunOutcome {
+  if (result.persisted === false) return 'failed';
+  return result.errors.length ? (result.unique ? 'partial' : 'failed') : 'succeeded';
 }
 
 /**
@@ -85,9 +96,8 @@ async function cachePhotos(
 }
 
 /**
- * Passo comune: dedup nel run → scoring dei SOLI nuovi → upsert nel store.
- * I nuovi ricevono `ai`/`photos`/`notified`; i già-visti si ri-upsertano senza patch per
- * rinfrescare `lastSeen`/contenuto preservando `ai` e lo `status` scelto dall'utente.
+ * Passo comune: dedup nel run → scoring dei nuovi e di chi ha `ai:null` → upsert nel store.
+ * I già valutati conservano l'AI; tutti preservano lo `status` scelto dall'utente.
  * NON salva: salva l'orchestratore (`runPipeline`) una volta sola.
  */
 export async function ingest(listings: Listing[], channel: ChannelId, opts: RunOptions): Promise<RunResult> {
@@ -105,6 +115,7 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
   for (const l of residential) if (!byKey.has(dedupKey(l))) byKey.set(dedupKey(l), l);
   const unique = [...byKey.values()];
   const freshKeys = new Set(unique.filter((l) => store.isNew(l)).map(dedupKey));
+  const scoreTargets = unique.filter((l) => freshKeys.has(dedupKey(l)) || !store.get(dedupKey(l))?.ai);
 
   log(`[${channel}] raccolti ${listings.length} · unici ${unique.length} · nuovi ${freshKeys.size}`);
 
@@ -114,13 +125,11 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
 
   let scores = new Map<string, ScoreResult>();
   let visions = new Map<string, string>();
-  if (doScore && freshKeys.size) {
-    const fresh = unique.filter((l) => freshKeys.has(dedupKey(l)));
-
+  if (doScore && scoreTargets.length) {
     // Stadio 1 (vision): descrive le foto, se attivo. Plus non bloccante.
     if (opts.vision ?? visionConfigured()) {
       try {
-        visions = await describePhotos(fresh, log, photoOf);
+        visions = await describePhotos(scoreTargets, log, photoOf);
         if (visions.size) log(`[${channel}] vision: ${visions.size} foto descritte`);
       } catch (e) {
         log(`[${channel}] vision fallita: ${(e as Error).message}`);
@@ -128,13 +137,19 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
     }
 
     // Stadio 2 (reasoning): la descrizione foto entra nel `desc` così il voto ne tiene conto.
-    const enriched = fresh.map((l) => {
+    const enriched = scoreTargets.map((l) => {
       const v = visions.get(dedupKey(l));
       return v ? { ...l, desc: [l.desc, `FOTO: ${v}`].filter(Boolean).join('\n') } : l;
     });
     try {
       log(`[${channel}] valuto ${enriched.length} annunci con l'AI…`);
-      scores = await scoreBatch(enriched, log);
+      scores = await scoreBatch(enriched, log, { resetPenalties: false });
+      const missing = enriched.filter((l) => !scores.has(dedupKey(l))).length;
+      if (missing) {
+        const msg = `Valutazione AI assente per ${missing}/${enriched.length} annunci; riproverò alla prossima scansione`;
+        log(`[${channel}] ${msg}`);
+        errors.push(msg);
+      }
     } catch (e) {
       const msg = `AI scoring fallito: ${(e as Error).message}`;
       log(`[${channel}] ${msg}`);
@@ -160,13 +175,16 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
           photos: photo ? [photo] : [],
           notified: false,
         })
-      : // già-visto: rinfresca lastSeen/contenuto, preserva ai/fields/status/channel.
+      : // già-visto: recupera solo l'AI mancante; preserva status/channel/notified.
         // `photos` solo se abbiamo appena messo in cache la foto (self-heal degli URL scaduti).
-        store.upsert(l, now, local ? { photos: [local] } : {});
+        store.upsert(l, now, {
+          ...(local ? { photos: [local] } : {}),
+          ...(res ? { ai: res.ai, fields: res.fields, visionSummary: visions.get(key) } : {}),
+        });
     if (isFresh) newRecords.push(rec);
   }
 
-  return { channel, collected: listings.length, unique: unique.length, fresh: freshKeys.size, newRecords, errors };
+  return { channel, collected: listings.length, unique: unique.length, fresh: freshKeys.size, newRecords, errors, outcome: errors.length ? 'partial' : 'succeeded' };
 }
 
 /** Risultato dell'email + commit differito: le mail si marcano lette SOLO dopo un save riuscito. */
@@ -185,6 +203,7 @@ export async function runEmail(opts: RunOptions): Promise<EmailRun> {
   const log = resolveLog(opts);
   const { Mailbox } = await import('../sources/email/imap.js');
   const { emailSources } = await import('../sources/email/index.js');
+  const { createEmailLinkResolver } = await import('../sources/email/tracking-links.js');
   const noop: EmailRun = { result: empty('email', ['IMAP non configurato']), finalize: async () => {} };
 
   if (!Mailbox.configured()) {
@@ -195,17 +214,32 @@ export async function runEmail(opts: RunOptions): Promise<EmailRun> {
   const box = new Mailbox();
   const collected: Listing[] = [];
   const processed: number[] = [];
+  const errors: string[] = [];
+  const resolver = createEmailLinkResolver();
   await box.open();
   try {
     const msgs = await box.fetchUnread();
     for (const msg of msgs) {
       const src = emailSources.find((s) => s.matchesSender(msg.from));
       if (!src) continue; // mittente non-portale → NON toccare (resta non letta, è posta personale)
-      for (const l of src.parse(msg.html, msg.text)) collected.push(l);
-      processed.push(msg.uid); // candidate a "lette": SOLO le mail dei portali riconosciuti
+      try {
+        const resolved = src.resolve ? await src.resolve(msg.html, msg.text, resolver) : null;
+        const listings = resolved?.listings ?? src.parse(msg.html, msg.text);
+        if (!listings.length) throw new Error('nessun annuncio riconosciuto: formato email da verificare');
+        collected.push(...listings);
+        if (resolved && !resolved.complete) throw new Error(`estrazione parziale: ${resolved.unresolved} link annuncio non risolti`);
+        processed.push(msg.uid); // Solo mail con estrazione riuscita, dopo la persistenza.
+      } catch (e) {
+        const error = `email UID ${msg.uid} (${src.name}): ${(e as Error).message}; lasciata non letta`;
+        errors.push(error);
+        log(`[email] ${error}`);
+      }
     }
     log(`[email] ${msgs.length} non lette · ${processed.length} da portali`);
+    log(`[email] redirect: ${resolver.stats.requests}/120 HEAD · ${resolver.stats.cacheHits} in cache${resolver.stats.exhausted ? ' · limite raggiunto, mail incomplete lasciate non lette' : ''}`);
     const result = await ingest(collected, 'email', opts);
+    result.errors.push(...errors);
+    result.outcome = resultOutcome(result);
     const finalize = async (saved: boolean): Promise<void> => {
       try {
         if (saved && processed.length) {
@@ -248,6 +282,7 @@ export async function runScrapers(channels: ChannelId[], opts: RunOptions): Prom
   const searches = loadSearches();
   const collectedBy = new Map<ChannelId, Listing[]>();
   const errorsBy = new Map<ChannelId, string[]>();
+  const succeededBy = new Map<ChannelId, number>();
   for (const s of active) collectedBy.set(s.name as ChannelId, []);
 
   const browser = await launchBrowser();
@@ -259,6 +294,7 @@ export async function runScrapers(channels: ChannelId[], opts: RunOptions): Prom
           const ch = source.name as ChannelId;
           try {
             const listings = await source.fetch(profile, ctx);
+            succeededBy.set(ch, (succeededBy.get(ch) ?? 0) + 1);
             const bucket = collectedBy.get(ch)!;
             for (const l of listings) if (matches(l, profile)) bucket.push(l);
           } catch (e) {
@@ -282,6 +318,8 @@ export async function runScrapers(channels: ChannelId[], opts: RunOptions): Prom
     const ch = source.name as ChannelId;
     const r = await ingest(collectedBy.get(ch) ?? [], ch, opts);
     r.errors.push(...(errorsBy.get(ch) ?? []));
+    r.outcome = resultOutcome(r);
+    if (r.outcome === 'failed' && succeededBy.get(ch)) r.outcome = 'partial';
     results.push(r);
   }
   return results;
@@ -305,6 +343,11 @@ export async function runFacebook(opts: RunOptions): Promise<RunResult> {
   const { groups, market } = loadFbConfig();
 
   const collected: Listing[] = [];
+  const errors: string[] = [];
+  const onError = (message: string) => {
+    errors.push(message);
+    log(`[facebook] ${message}`);
+  };
   const browser = await launchBrowser();
   try {
     const ctx = await newContext(browser, { storageState: FB_STATE_PATH });
@@ -315,14 +358,14 @@ export async function runFacebook(opts: RunOptions): Promise<RunResult> {
       }
       // Gruppi e Marketplace isolati: uno che fallisce non fa saltare l'altro.
       try {
-        collected.push(...(await scrapeGroups(ctx, groups, FB_MAX_SCROLL)));
+        collected.push(...(await scrapeGroups(ctx, groups, FB_MAX_SCROLL, onError)));
       } catch (e) {
-        log(`[facebook] gruppi falliti: ${(e as Error).message}`);
+        onError(`gruppi falliti: ${(e as Error).message}`);
       }
       try {
-        collected.push(...(await scrapeMarketplace(ctx, market, FB_MAX_SCROLL)));
+        collected.push(...(await scrapeMarketplace(ctx, market, FB_MAX_SCROLL, onError)));
       } catch (e) {
-        log(`[facebook] marketplace fallito: ${(e as Error).message}`);
+        onError(`marketplace fallito: ${(e as Error).message}`);
       }
     } finally {
       await ctx.close();
@@ -330,7 +373,10 @@ export async function runFacebook(opts: RunOptions): Promise<RunResult> {
   } finally {
     await browser.close();
   }
-  return ingest(collected, 'facebook', opts);
+  const result = await ingest(collected, 'facebook', opts);
+  result.errors.push(...errors);
+  result.outcome = resultOutcome(result);
+  return result;
 }
 
 /**
@@ -339,28 +385,61 @@ export async function runFacebook(opts: RunOptions): Promise<RunResult> {
  * Usato sia dal server sia dai wrapper CLI.
  */
 export async function runPipeline(channels: ChannelId[], opts: RunOptions): Promise<RunSummary> {
+  const { loadSearches } = await import('../config/searches.js');
+  if (!loadSearches().length) {
+    throw Object.assign(new Error('Configura almeno una ricerca prima di avviare la scansione.'), { code: 'PROFILE_NOT_CONFIGURED' });
+  }
+  beginScoringTask();
+  try {
+    return await executePipeline(channels, opts);
+  } finally {
+    endScoringTask();
+  }
+}
+
+async function executePipeline(channels: ChannelId[], opts: RunOptions): Promise<RunSummary> {
   const log = resolveLog(opts);
   const startedAt = new Date().toISOString();
   const runId = `run_${Date.now().toString(36)}`;
   const results: RunResult[] = [];
   const scraperChannels = channels.filter((c) => SCRAPER_CHANNELS.includes(c));
 
-  const save = async (label: string): Promise<boolean> => {
+  let saveFailed = false;
+  const save = async (label: string, affected: RunResult[], checkpoint: ReturnType<ListingStore['checkpoint']>): Promise<boolean> => {
     try {
       await opts.store.save();
+      for (const result of affected) result.persisted = true;
       return true;
     } catch (e) {
-      log(`[${label}] ERRORE salvataggio: ${(e as Error).message}`);
+      saveFailed = true;
+      opts.store.restoreCheckpoint(checkpoint);
+      const message = `salvataggio fallito: ${(e as Error).message}`;
+      log(`[${label}] ERRORE ${message}`);
+      for (const result of affected) {
+        result.errors.push(message);
+        result.persisted = false;
+        result.outcome = 'failed';
+        result.newRecords = [];
+        result.fresh = 0;
+      }
       return false;
     }
   };
 
   if (channels.includes('email')) {
+    const checkpoint = opts.store.checkpoint();
     try {
       const { result, finalize } = await runEmail(opts);
       results.push(result);
-      const saved = await save('email');
-      await finalize(saved); // markSeen SOLO dopo un save riuscito
+      const saved = await save('email', [result], checkpoint);
+      try {
+        await finalize(saved); // markSeen SOLO dopo un save riuscito
+      } catch (e) {
+        const message = `finalizzazione email fallita: ${(e as Error).message}`;
+        log(`[email] ERRORE ${message}`);
+        result.errors.push(message);
+        result.outcome = resultOutcome(result);
+      }
     } catch (e) {
       log(`[email] ERRORE canale: ${(e as Error).message}`);
       results.push(empty('email', [`email: ${(e as Error).message}`]));
@@ -368,36 +447,48 @@ export async function runPipeline(channels: ChannelId[], opts: RunOptions): Prom
   }
 
   if (scraperChannels.length) {
+    const checkpoint = opts.store.checkpoint();
+    const channelResults: RunResult[] = [];
     try {
-      results.push(...(await runScrapers(scraperChannels, opts)));
+      channelResults.push(...(await runScrapers(scraperChannels, opts)));
     } catch (e) {
       log(`[scrapers] ERRORE canale: ${(e as Error).message}`);
-      for (const c of scraperChannels) results.push(empty(c, [`scrapers: ${(e as Error).message}`]));
+      for (const c of scraperChannels) channelResults.push(empty(c, [`scrapers: ${(e as Error).message}`]));
     }
-    await save('scrapers');
+    results.push(...channelResults);
+    await save('scrapers', channelResults, checkpoint);
   }
 
   if (channels.includes('facebook')) {
+    const checkpoint = opts.store.checkpoint();
+    let result: RunResult;
     try {
-      results.push(await runFacebook(opts));
+      result = await runFacebook(opts);
     } catch (e) {
       log(`[facebook] ERRORE canale: ${(e as Error).message}`);
-      results.push(empty('facebook', [`facebook: ${(e as Error).message}`]));
+      result = empty('facebook', [`facebook: ${(e as Error).message}`]);
     }
-    await save('facebook');
+    results.push(result);
+    await save('facebook', [result], checkpoint);
   }
 
   // Le miniature degli annunci potati resterebbero su disco per sempre. Best-effort: una pulizia
   // fallita non è mai un buon motivo per far fallire un run.
-  try {
-    const removed = await pruneThumbs(opts.store.all().flatMap((r) => r.photos));
-    if (removed) log(`🧹 miniature non più referenziate: ${removed} rimosse`);
-  } catch {
-    /* ignora */
+  if (!saveFailed) {
+    try {
+      const removed = await pruneThumbs(opts.store.all().flatMap((r) => r.photos));
+      if (removed) log(`🧹 miniature non più referenziate: ${removed} rimosse`);
+    } catch {
+      /* ignora */
+    }
   }
 
   const finishedAt = new Date().toISOString();
   const totFresh = results.reduce((n, r) => n + r.fresh, 0);
-  log(`✅ Run ${runId} · nuovi totali: ${totFresh} · in archivio: ${opts.store.size}`);
-  return { runId, channels, results, startedAt, finishedAt };
+  const outcome: RunOutcome = results.every((r) => r.outcome === 'succeeded')
+    ? 'succeeded'
+    : results.every((r) => r.outcome === 'failed') ? 'failed' : 'partial';
+  const label = outcome === 'succeeded' ? '✅ completata' : outcome === 'partial' ? '⚠️ completata con problemi' : '❌ fallita';
+  log(`${label} · Run ${runId} · nuovi salvati: ${totFresh} · in memoria: ${opts.store.size}`);
+  return { runId, channels, results, startedAt, finishedAt, outcome };
 }

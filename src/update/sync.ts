@@ -1,4 +1,4 @@
-import { copyFile, mkdir, open, readdir, stat } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, open, readFile, readdir, stat, unlink } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { isPreserved } from '../config/install.js';
 
@@ -76,9 +76,101 @@ async function copyWithRetry(
 async function* walk(dir: string): AsyncGenerator<string> {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
+    if (entry.isSymbolicLink()) throw new Error(`Il bundle contiene un collegamento: ${full}`);
     if (entry.isDirectory()) yield* walk(full);
     else if (entry.isFile()) yield full;
   }
+}
+
+export function validateArchiveEntries(entries: string[]): void {
+  for (const raw of entries) {
+    const name = raw.replace(/\\/g, '/').replace(/^\.\//, '');
+    if (name.startsWith('/') || name.includes(':') || name.split('/').some((p) => p === '..' || /[. ]$/.test(p))) {
+      throw new Error(`Percorso non valido nell'archivio: ${raw}`);
+    }
+  }
+  const files = entries.map((s) => s.replace(/\\/g, '/').replace(/^\.\//, ''));
+  const serve = files.find((s) => s === 'app/scripts/serve.js' || s.endsWith('/app/scripts/serve.js'));
+  if (!serve) throw new Error('Bundle incompleto: manca app/scripts/serve.js.');
+  const prefix = serve.slice(0, -'app/scripts/serve.js'.length);
+  for (const needed of ['app/package.json', 'app/scripts/updater.js', 'app/src/version.js',
+    'app/ui/dist/index.html', 'app/node_modules/express/package.json']) {
+    if (!files.includes(prefix + needed)) throw new Error(`Bundle incompleto: manca ${needed}.`);
+  }
+  if (!files.includes(prefix + 'app/node.exe') && !files.includes(prefix + 'node.exe')) {
+    throw new Error('Bundle incompleto: manca node.exe.');
+  }
+}
+
+/** La verifica estratta precede qualsiasi scrittura sull'installazione. Vecchio e nuovo layout. */
+export async function validateBundleTree(root: string, version: string): Promise<void> {
+  const files = new Set<string>();
+  for await (const file of walk(root)) files.add(relative(root, file).split(sep).join('/'));
+  for (const needed of ['app/package.json', 'app/scripts/serve.js', 'app/scripts/updater.js',
+    'app/src/version.js', 'app/ui/dist/index.html', 'app/node_modules/express/package.json']) {
+    if (!files.has(needed)) throw new Error(`Bundle incompleto: manca ${needed}.`);
+  }
+  if (!files.has('app/node.exe') && !files.has('node.exe')) throw new Error('Bundle incompleto: manca node.exe.');
+  const source = await readFile(join(root, 'app', 'src', 'version.js'), 'utf8');
+  const actual = source.match(/export\s+const\s+APP_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1];
+  if (!actual || actual.replace(/^v/, '') !== version.replace(/^v/, '')) {
+    throw new Error(`Versione del bundle diversa dalla release ${version}.`);
+  }
+}
+
+interface SnapshotEntry { rel: string; existed: boolean }
+export interface InstallSnapshot { root: string; backup: string; entries: SnapshotEntry[] }
+
+/** Solo i file che la copia toccherà: archivio e configurazione restano esclusi anche dal backup. */
+export async function snapshotInstall(src: string, root: string, backup: string): Promise<InstallSnapshot> {
+  const snapshot: InstallSnapshot = { root, backup, entries: [] };
+  for await (const file of walk(src)) {
+    const rel = relative(src, file).split(sep).join('/');
+    if (isPreserved(rel.toLowerCase())) continue;
+    const target = join(root, rel);
+    // Un junction nell'installazione non deve portarci fuori dalla sua radice.
+    let cursor = root;
+    for (const part of rel.split('/')) {
+      cursor = join(cursor, part);
+      try {
+        if ((await lstat(cursor)).isSymbolicLink()) throw new Error(`Collegamento nell'installazione: ${cursor}`);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      }
+    }
+    let existed = false;
+    try {
+      const info = await lstat(target);
+      if (!info.isFile()) throw new Error(`Il file da aggiornare non è un file: ${target}`);
+      const saved = join(backup, rel);
+      await mkdir(dirname(saved), { recursive: true });
+      await copyFile(target, saved);
+      existed = true;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    }
+    snapshot.entries.push({ rel, existed });
+  }
+  return snapshot;
+}
+
+/** Ripristina file sostituiti e rimuove soltanto quelli introdotti dal tentativo fallito. */
+export async function restoreInstall(snapshot: InstallSnapshot, opts: SyncOptions = {}): Promise<void> {
+  const errors: string[] = [];
+  for (const entry of [...snapshot.entries].reverse()) {
+    const target = join(snapshot.root, entry.rel);
+    try {
+      if (entry.existed) {
+        await copyWithRetry(join(snapshot.backup, entry.rel), target,
+          opts.retryDelaysMs ?? COPY_RETRY_DELAYS_MS, opts.sleep ?? wait, opts.copyFileImpl ?? copyFile);
+      } else {
+        await unlink(target).catch((e: NodeJS.ErrnoException) => {
+          if (e.code !== 'ENOENT') throw e;
+        });
+      }
+    } catch (e) { errors.push(e instanceof Error ? e.message : String(e)); }
+  }
+  if (errors.length) throw new Error(`Ripristino incompleto; backup conservato in ${snapshot.backup}: ${errors.join('; ')}`);
 }
 
 /**
@@ -98,7 +190,7 @@ export async function syncInstallDir(
 
   for await (const file of walk(src)) {
     const rel = relative(src, file).split(sep).join('/');
-    if (isPreserved(rel)) {
+    if (isPreserved(rel.toLowerCase())) {
       result.skipped.push(rel);
       continue;
     }

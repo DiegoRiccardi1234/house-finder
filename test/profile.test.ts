@@ -57,9 +57,9 @@ test('le zone restano attaccate alla città giusta', () => {
   assert.ok(bologna.avoid.includes('Zona Industriale'));
 });
 
-test('gli irrinunciabili arrivano senza la spiegazione fra parentesi', () => {
+test('gli irrinunciabili conservano la spiegazione fra parentesi', () => {
   const p = deriveFromLegacy(RICERCHE, STORICO);
-  assert.deepEqual(p.musts, ['ARREDATO', 'Prezzo entro il tetto']);
+  assert.deepEqual(p.musts, ['ARREDATO (scarta le case non arredate)', 'Prezzo entro il tetto (penalizza forte chi sfora)']);
 });
 
 test('le sfumature scritte a mano non si perdono per strada', () => {
@@ -68,6 +68,19 @@ test('le sfumature scritte a mano non si perdono per strada', () => {
   // può distruggere per sempre.
   assert.match(p.notes, /NO-GO/);
   assert.match(p.notes, /vicinanza ai mezzi/);
+  assert.match(p.notes, /TIPOLOGIA/);
+  assert.match(p.notes, /stanza in appartamento condiviso/);
+  assert.ok(p.zones[0].keep.includes('Città Studi (core)'));
+});
+
+test('condizioni di zona e sezioni sconosciute sopravvivono alla conversione', () => {
+  const text = STORICO.replace('ZONE — filtro', 'PREFERENZE: niente pianoterra.\n\nZONE — filtro')
+    .replace('Città Studi (core);', 'Città Studi (core); Centro SOLO se economico;');
+  const first = deriveFromLegacy(RICERCHE, text);
+  assert.match(first.notes, /PREFERENZE: niente pianoterra/);
+  assert.match(first.notes, /Centro SOLO se economico/);
+  const second = deriveFromLegacy(RICERCHE, renderCriteria(first));
+  assert.match(second.notes, /Centro SOLO se economico/);
 });
 
 test('il testo rigenerato contiene tutto quello che serve al modello', () => {

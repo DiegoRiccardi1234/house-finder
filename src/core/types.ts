@@ -55,6 +55,18 @@ export interface EmailSource {
   matchesSender(from: string): boolean;
   /** Estrae gli annunci dal corpo della mail. */
   parse(html: string, text: string): Listing[];
+  /** Recupera solo redirect di card-annuncio; un risultato parziale NON autorizza Seen. */
+  resolve?(html: string, text: string, resolver: EmailLinkResolver): Promise<EmailResolution>;
+}
+
+export interface EmailLinkResolver {
+  resolve(href: string, source: string): Promise<string | null>;
+}
+
+export interface EmailResolution {
+  listings: Listing[];
+  complete: boolean;
+  unresolved: number;
 }
 
 /** Giudizio AI su un annuncio rispetto ai criteri dell'utente. */

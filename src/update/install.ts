@@ -11,6 +11,7 @@ import { execFile } from 'node:child_process';
 import { detectInstall } from '../config/install.js';
 import type { ReleaseAsset } from './check.js';
 import { writeEvent } from './events.js';
+import { validateArchiveEntries } from './sync.js';
 
 const run = promisify(execFile);
 
@@ -111,14 +112,11 @@ export async function verifyDownload(zipPath: string, asset: ReleaseAsset): Prom
       throw new Error(`Impronta sha256 diversa da quella dichiarata da GitHub.`);
     }
   }
-  const entries = (await listZip(zipPath)).map((e) => e.replace(/\\/g, '/').replace(/^\.\//, ''));
+  const entries = await listZip(zipPath);
   // Lo zip contiene una cartella `HouseFinder/`, come quelli di Job e Trip Finder: estratto dove
   // capita non sparpaglia undici voci addosso a chi lo apre. Fino alla 1.4.0 era senza, e le due
   // forme vanno accettate entrambe — un'installazione vecchia deve poter aggiornare a una nuova.
-  const has = (p: string) => entries.some((e) => e === p || e.endsWith(`/${p}`));
-  for (const needed of ['node.exe', 'app/scripts/serve.js']) {
-    if (!has(needed)) throw new Error(`L'archivio non contiene ${needed}: non è un bundle valido.`);
-  }
+  validateArchiveEntries(entries);
 }
 
 /**
@@ -163,7 +161,7 @@ export interface LaunchOptions {
  * da fuori sembrava che l'aggiornamento non finisse mai. `'ignore'` fa aprire `NUL` a Node
  * invece di ereditare qualcosa di morto, ed è l'antidoto esatto a quel difetto.
  */
-export function launchUpdater(opts: LaunchOptions): number | undefined {
+export async function launchUpdater(opts: LaunchOptions): Promise<number | undefined> {
   const child = spawn(
     join(opts.tempDir, 'node.exe'),
     [
@@ -179,6 +177,10 @@ export function launchUpdater(opts: LaunchOptions): number | undefined {
     ],
     { detached: true, windowsHide: true, stdio: 'ignore' },
   );
+  await new Promise<void>((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', reject);
+  });
   child.unref();
   return child.pid;
 }
