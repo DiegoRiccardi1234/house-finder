@@ -57,7 +57,7 @@ test('GET /api/meta: i canali scraper seguono la presenza dei browser', async ()
   for (const id of ['subito', 'immobiliare', 'idealista']) {
     const ch = res.body.channels.find((c: { id: string }) => c.id === id);
     assert.equal(ch.available, res.body.browsersInstalled, `canale ${id}`);
-    if (!ch.available) assert.match(ch.reason, /browser non installato/);
+    if (!ch.available) assert.match(ch.reason, /browser mancanti/);
   }
   // Facebook richiede ENTRAMBI: browser e sessione salvata (che sulla macchina di sviluppo può
   // esistere davvero, quindi si verifica la relazione, non un valore fisso).
