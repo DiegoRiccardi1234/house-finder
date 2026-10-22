@@ -37,11 +37,13 @@ export function ConfigView({
   onProvidersChanged,
   openTab,
   meta,
+  onArchiveChanged,
 }: {
   onProvidersChanged?: () => void;
   /** Tab da aprire su richiesta esterna (il badge dell'header, il tasto Modifica del profilo). */
   openTab?: ConfigTab | null;
   meta?: Meta | null;
+  onArchiveChanged: () => void;
 }) {
   const [tab, setTab] = useState<ConfigTab>('search');
   /**
@@ -91,6 +93,7 @@ export function ConfigView({
         const r = await api.refilterListings();
         setResetMsg(`Ripulito: ${r.removed} rimossi, restano ${r.after}.`);
       }
+      onArchiveChanged();
     } catch (e) {
       setResetMsg(`Errore: ${(e as Error).message}`);
     } finally {

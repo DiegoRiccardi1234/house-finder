@@ -49,7 +49,7 @@ const APP = join(STAGE, 'app');
 const APP_REL = 'dist/HouseFinder/app';
 
 /** Versione di Node spedita nello zip. Aggiornala insieme alla matrice della CI. */
-const NODE_VERSION = process.env.BUNDLE_NODE_VERSION ?? '22.11.0';
+const NODE_VERSION = process.env.BUNDLE_NODE_VERSION ?? '22.23.4';
 const NODE_EXE_URL = `https://nodejs.org/dist/v${NODE_VERSION}/win-x64/node.exe`;
 
 /**

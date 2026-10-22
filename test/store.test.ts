@@ -2,10 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { rm, writeFile, readFile } from 'node:fs/promises';
+import { rm, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { acquireStoreLock } from '../src/core/store-lock.js';
 import { ListingStore } from '../src/core/store.js';
+import { writeFileAtomic } from '../src/core/atomic.js';
 import { dedupKey } from '../src/core/state.js';
 import type { Listing, ListingFields } from '../src/core/types.js';
 
@@ -164,6 +165,81 @@ test('save atomico: mantiene .bak col contenuto del salvataggio precedente', asy
     await rm(path, { force: true });
     await rm(`${path}.bak`, { force: true });
     await rm(`${path}.tmp`, { force: true });
+  }
+});
+
+test('save dopo recupero JSON: un errore conserva il backup valido e permette di ripartire', async () => {
+  const path = tmpPath();
+  const valid = { 'immobiliare:123': makeStored() };
+  try {
+    await writeFile(path, 'JSON ROTTO');
+    await writeFile(`${path}.bak`, JSON.stringify(valid));
+    const store = await ListingStore.load(path);
+    // Errore deterministico prima del rename, senza dipendere dai permessi del sistema.
+    await mkdir(`${path}.tmp`);
+    await assert.rejects(store.save());
+    assert.deepEqual(JSON.parse(await readFile(`${path}.bak`, 'utf8')), valid);
+    assert.deepEqual((await ListingStore.load(path)).checkpoint(), valid);
+    await rm(`${path}.tmp`, { recursive: true });
+    await store.save();
+    assert.deepEqual((await ListingStore.load(path)).checkpoint(), valid);
+    assert.deepEqual(JSON.parse(await readFile(`${path}.bak`, 'utf8')), valid);
+  } finally {
+    await rm(path, { force: true });
+    await rm(`${path}.bak`, { force: true });
+    await rm(`${path}.tmp`, { recursive: true, force: true });
+  }
+});
+
+test('scrittura testuale generica: conserva il testo precedente nel backup', async () => {
+  const path = tmpPath();
+  try {
+    await writeFileAtomic(path, 'Testo libero precedente');
+    await writeFileAtomic(path, 'Testo libero nuovo');
+    assert.equal(await readFile(`${path}.bak`, 'utf8'), 'Testo libero precedente');
+    assert.equal(await readFile(path, 'utf8'), 'Testo libero nuovo');
+  } finally {
+    await rm(path, { force: true });
+    await rm(`${path}.bak`, { force: true });
+  }
+});
+
+test('mutazioni concorrenti: rollback prima della successiva, che può poi salvare', async (t) => {
+  const path = tmpPath();
+  const store = await ListingStore.load(path);
+  store.upsert(listing(), 'T');
+  await store.save();
+  const realSave = store.save.bind(store);
+  let fail: (e: Error) => void = () => {};
+  let entered: () => void = () => {};
+  const firstEntered = new Promise<void>((r) => { entered = r; });
+  const blocked = new Promise<void>((_r, reject) => { fail = reject; });
+  let saves = 0;
+  t.mock.method(store, 'save', () => {
+    if (++saves === 1) { entered(); return blocked; }
+    return realSave();
+  });
+  try {
+    const first = store.mutateAndSave(() => store.clear());
+    const failed = assert.rejects(first, /disco pieno/);
+    await firstEntered;
+    let secondStarted = false;
+    const second = store.mutateAndSave(() => {
+      secondStarted = true;
+      assert.equal(store.size, 1, 'lo stato precedente è stato ripristinato');
+      store.setStatus('immobiliare:123', 'favorite');
+    });
+    assert.equal(store.isMutating, true);
+    assert.equal(secondStarted, false);
+    fail(new Error('disco pieno'));
+    await failed;
+    await second;
+    assert.equal(store.isMutating, false);
+    assert.equal(store.get('immobiliare:123')?.status, 'favorite');
+    assert.deepEqual((await ListingStore.load(path)).checkpoint(), store.checkpoint());
+  } finally {
+    await rm(path, { force: true });
+    await rm(`${path}.bak`, { force: true });
   }
 });
 

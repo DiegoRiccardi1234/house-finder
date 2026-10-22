@@ -38,16 +38,29 @@ export async function scrapeMarketplace(
       await gotoResilient(page, t.url);
       await page.waitForSelector('a[href*="/marketplace/item/"]', { state: 'attached', timeout: 15_000 });
       // Marketplace virtualizza come il feed: estrai dopo ogni scroll e accumula (dedup per href).
-      const raw: RawCard[] = [];
-      const rawSeen = new Set<string>();
+      const raw = new Map<string, RawCard>();
+      let revision = 0;
       const collect = async () => {
         for (const c of await extractCards(page)) {
-          if (!rawSeen.has(c.href)) {
-            rawSeen.add(c.href);
-            raw.push(c);
+          const key = parseMarketplaceId(c.href) ?? c.href;
+          const previous = raw.get(key);
+          if (!previous) {
+            raw.set(key, c);
+            revision++;
+          } else {
+            // Conserva l'offerta anche se un successivo frammento/commento è più lungo.
+            const wasListing = looksLikeListing(previous.text);
+            const isListing = looksLikeListing(c.text);
+            const preferNew = isListing !== wasListing ? isListing : c.text.length > previous.text.length;
+            const text = preferNew ? c.text : previous.text;
+            const img = c.img ?? previous.img;
+            if (text !== previous.text || img !== previous.img) {
+              raw.set(key, { ...previous, text, img });
+              revision++;
+            }
           }
         }
-        return rawSeen.size;
+        return revision;
       };
       await settleFacebookContent(page, collect);
       for (let i = 0; i < maxScroll; i++) {
@@ -55,7 +68,7 @@ export async function scrapeMarketplace(
         await settleFacebookContent(page, collect);
       }
       const seen = new Set<string>();
-      for (const c of raw) {
+      for (const c of raw.values()) {
         const id = parseMarketplaceId(c.href);
         if (!id || seen.has(id)) continue;
         if (!looksLikeListing(c.text)) continue; // scarta i non-affitti (cucine, camerette…)
@@ -71,7 +84,7 @@ export async function scrapeMarketplace(
           thumb: c.img,
         });
       }
-      console.log(`[fb-market] ${t.name}: ${raw.length} card · ${seen.size} item`);
+      console.log(`[fb-market] ${t.name}: ${raw.size} card · ${seen.size} item`);
     } catch (e) {
       console.error(`[fb-market] ${t.name} ERRORE:`, (e as Error).message);
       onError?.(`marketplace ${t.name}: ${(e as Error).message}`);

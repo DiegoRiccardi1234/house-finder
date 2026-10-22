@@ -9,6 +9,8 @@ import { CATALOG } from '../src/ai/providers/catalog.js';
 import { getProvider, invalidateRegistry } from '../src/ai/providers/registry.js';
 import { beginScoringTask, endScoringTask, penaltyScore, clearPenalties } from '../src/ai/endpoint-health.js';
 import type { Listing } from '../src/core/types.js';
+import type { ChatRequest, ProviderId } from '../src/ai/providers/types.js';
+import { clearHealthCache } from '../src/ai/endpoint-health.js';
 
 test('parseScoreResponse: JSON pulito → mappa id→risultato', () => {
   const m = parseScoreResponse('{"scores":[{"id":"a","score":80,"verdict":"ok","worthVisit":true}]}');
@@ -29,10 +31,15 @@ test('parseScoreResponse: item malformati scartati uno a uno, i buoni restano', 
   assert.ok(m.get('c'));
 });
 
-test('parseScoreResponse: campi mancanti → default tolleranti (score 0)', () => {
-  const m = parseScoreResponse('{"scores":[{"id":"d"}]}');
-  assert.equal(m.get('d')?.ai.score, 0);
-  assert.equal(m.get('d')?.ai.worthVisit, false);
+test('parseScoreResponse: voto assente o invalido non diventa uno zero definitivo', () => {
+  for (const score of [undefined, null, '', '80', 'no', -1, 101, NaN, Infinity]) {
+    const m = parseScoreResponse(JSON.stringify({ scores: [{ id: 'd', score }] }));
+    assert.equal(m.size, 0, `score non valido: ${String(score)}`);
+  }
+  const m = parseScoreResponse('{"scores":[{"id":"zero","score":0},{"id":"max","score":100}]}');
+  assert.equal(m.get('zero')?.ai.score, 0);
+  assert.equal(m.get('max')?.ai.score, 100);
+  assert.equal(m.get('zero')?.ai.worthVisit, false);
 });
 
 test('parseScoreResponse: scores assente → mappa vuota, niente crash', () => {
@@ -48,7 +55,7 @@ test('parseScoreResponse: ID estranei e duplicati esclusi, validi conservati', (
 });
 
 /** Credenziali e provider isolati: la chat viene sempre mockata, niente rete. */
-async function withProvider(fn: () => Promise<void>): Promise<void> {
+async function withProvider(fn: () => Promise<void>, provider: ProviderId = 'groq'): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'hf-score-'));
   await mkdir(join(dir, 'local'), { recursive: true });
   const envNames = ['DATA_DIR', 'AI_MODEL', 'AI_PROVIDER', ...CATALOG.map((s) => s.envVar)];
@@ -59,8 +66,8 @@ async function withProvider(fn: () => Promise<void>): Promise<void> {
   invalidateRegistry();
   clearPenalties();
   try {
-    await saveKey('groq', 'fake-offline-key');
-    await setPrimary('groq');
+    await saveKey(provider, 'fake-offline-key');
+    await setPrimary(provider);
     await fn();
   } finally {
     for (const [name, value] of previous) {
@@ -136,4 +143,55 @@ test('scoreBatch: tutti i fallback vuoti conservano i risultati parziali', async
     assert.equal(result.get('subito:a')?.ai.score, 80);
     assert.equal(result.has('subito:b'), false);
   });
+});
+
+test('scoreBatch: JSON malformato penalizza il modello e il chunk seguente cambia prima scelta', async (t) => {
+  await withProvider(async () => {
+    const models: string[] = [];
+    t.mock.method(getProvider('groq'), 'chat', async (req: { model: string; messages: Array<{ content: string }> }) => {
+      models.push(req.model);
+      if (models.length === 1) return { text: '{"scores":[', finishReason: 'stop' };
+      const items = JSON.parse(req.messages[1]!.content.split('ANNUNCI (JSON):\n')[1]!.split('\n\nRispondi con:')[0]!) as Array<{ id: string }>;
+      return { text: JSON.stringify({ scores: items.map(({ id }) => ({ id, score: 70 })) }), finishReason: 'stop' };
+    });
+    const out = await scoreBatch(Array.from({ length: 11 }, (_, i) => listing(String(i))));
+    assert.equal(out.size, 11);
+    assert.equal(models.length, 3, 'niente retry sul JSON malformato');
+    assert.notEqual(models[1], models[0]);
+    assert.equal(models[2], models[1], 'il secondo chunk parte dal modello non penalizzato');
+    assert.equal(penaltyScore(`groq::${models[0]}`), 3);
+  });
+});
+
+test('scoreBatch: item senza voto passa al fallback; se tutti falliscono resta senza AI', async (t) => {
+  await withProvider(async () => {
+    let calls = 0;
+    t.mock.method(getProvider('groq'), 'chat', async () => ({
+      text: JSON.stringify({ scores: calls++ === 0 ? [{ id: 'subito:a' }] : [{ id: 'subito:a', score: 75 }] }),
+      finishReason: 'stop',
+    }));
+    assert.equal((await scoreBatch([listing('a')])).get('subito:a')?.ai.score, 75);
+    assert.equal(calls, 2);
+    t.mock.method(getProvider('groq'), 'chat', async () => ({ text: '{"scores":[{"id":"subito:a"}]}', finishReason: 'stop' }));
+    assert.equal((await scoreBatch([listing('a')])).size, 0);
+  });
+});
+
+test('scoreBatch: scoring OpenRouter richiede reasoning off; salute e inferenza sono mockate', async (t) => {
+  await withProvider(async () => {
+    clearHealthCache();
+    t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
+      data: { endpoints: [{ status: 0, uptime_last_5m: 100, uptime_last_30m: 100 }] },
+    }), { status: 200 }));
+    t.mock.method(getProvider('openrouter'), 'chat', async (req: ChatRequest) => {
+      assert.equal(req.reasoning, false);
+      assert.equal(req.json, true);
+      return { text: '{"scores":[{"id":"subito:a","score":80}]}', finishReason: 'stop' };
+    });
+    try {
+      assert.equal((await scoreBatch([listing('a')])).get('subito:a')?.ai.score, 80);
+    } finally {
+      clearHealthCache();
+    }
+  }, 'openrouter');
 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api';
-import { useMeta } from './hooks';
+import { useMeta, useRunStream } from './hooks';
 import { Dashboard, DEFAULT_FILTERS } from './components/Dashboard';
 import { RunPanel } from './components/RunPanel';
 import { ConfigView, type ConfigTab } from './components/ConfigView';
@@ -90,6 +90,8 @@ export default function App() {
     setRefreshToken((n) => n + 1);
     setMetaToken((n) => n + 1);
   }, []);
+  // Un solo stream per l'app: anche Annunci deve conoscere la run senza aprire Cerca.
+  const run = useRunStream(onRunDone);
 
   return (
     <div className="mx-auto min-h-screen max-w-[1380px] px-4 py-5">
@@ -166,12 +168,15 @@ export default function App() {
             refreshToken={refreshToken}
             channels={meta?.channels ?? []}
             onGoToRun={() => go('run')}
+            runRunning={run.running}
+            runSynchronized={run.synchronized}
+            onArchiveChanged={onRunDone}
           />
         </div>
 
         {visited.has('run') && (
           <div hidden={view !== 'run'}>
-            <RunPanel meta={meta} onDone={onRunDone} onVediAnnunci={() => go('dashboard')} />
+            <RunPanel meta={meta} stream={run} onVediAnnunci={() => go('dashboard')} />
           </div>
         )}
 
@@ -196,6 +201,7 @@ export default function App() {
               }}
               openTab={configTab}
               meta={meta}
+              onArchiveChanged={onRunDone}
             />
           </div>
         )}

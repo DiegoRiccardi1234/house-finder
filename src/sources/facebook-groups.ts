@@ -54,17 +54,28 @@ export async function scrapeGroups(
       await page.waitForSelector('div[role="feed"] div[role="article"]', { state: 'attached', timeout: 15_000 });
       // FB VIRTUALIZZA il feed: gli article fuori schermo vengono rimossi dal DOM. Estraendo una
       // sola volta a fine scroll se ne vedono ~4. Quindi estrai DOPO OGNI scroll e accumula.
-      const raw: RawPost[] = [];
-      const rawSeen = new Set<string>();
+      const raw = new Map<string, RawPost>();
+      let revision = 0;
       const collect = async () => {
         for (const p of await extractPosts(page)) {
-          const k = p.href ?? p.text.slice(0, 100);
-          if (!rawSeen.has(k)) {
-            rawSeen.add(k);
-            raw.push(p);
+          const k = parsePostId(p.href) ?? p.href ?? p.text.slice(0, 100);
+          const previous = raw.get(k);
+          if (!previous) {
+            raw.set(k, p);
+            revision++;
+          } else {
+            const wasListing = looksLikeListing(stripFbChrome(previous.text));
+            const isListing = looksLikeListing(stripFbChrome(p.text));
+            const preferNew = isListing !== wasListing ? isListing : p.text.length > previous.text.length;
+            const text = preferNew ? p.text : previous.text;
+            const img = p.img ?? previous.img;
+            if (text !== previous.text || img !== previous.img) {
+              raw.set(k, { ...previous, text, img });
+              revision++;
+            }
           }
         }
-        return rawSeen.size;
+        return revision;
       };
       await settleFacebookContent(page, collect);
       for (let i = 0; i < maxScroll; i++) {
@@ -72,7 +83,7 @@ export async function scrapeGroups(
         await settleFacebookContent(page, collect);
       }
       const seen = new Set<string>();
-      for (const p of raw) {
+      for (const p of raw.values()) {
         const id = parsePostId(p.href);
         if (!id || seen.has(id)) continue;
         const clean = stripFbChrome(p.text);
@@ -89,7 +100,7 @@ export async function scrapeGroups(
           thumb: p.img,
         });
       }
-      console.log(`[fb-group] ${g.name}: ${raw.length} article · ${seen.size} post con id`);
+      console.log(`[fb-group] ${g.name}: ${raw.size} article · ${seen.size} post con id`);
     } catch (e) {
       console.error(`[fb-group] ${g.name} ERRORE:`, (e as Error).message);
       onError?.(`gruppo ${g.name}: ${(e as Error).message}`);

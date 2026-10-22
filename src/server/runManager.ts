@@ -4,6 +4,7 @@ import type { LogFn, RunSummary, ChannelId } from '../core/pipeline.js';
 export type SseEvent =
   | { type: 'log'; line: string }
   | { type: 'done'; summary: RunSummary }
+  | { type: 'state'; status: RunStatus }
   | { type: 'error'; message: string };
 
 export class RunBusyError extends Error {
@@ -51,6 +52,7 @@ export class RunManager {
   /** Iscrive un consumer SSE. Replaya il buffer corrente, poi riceve gli eventi live. Ritorna l'unsubscribe. */
   subscribe(fn: (e: SseEvent) => void): () => void {
     for (const e of this.buffer) fn(e);
+    fn({ type: 'state', status: this.status() });
     this.subscribers.add(fn);
     return () => this.subscribers.delete(fn);
   }
@@ -58,8 +60,10 @@ export class RunManager {
   private static readonly MAX_BUFFER = 500;
 
   private broadcast(e: SseEvent): void {
-    this.buffer.push(e);
-    if (this.buffer.length > RunManager.MAX_BUFFER) this.buffer.shift(); // niente crescita illimitata
+    if (e.type !== 'state') {
+      this.buffer.push(e);
+      if (this.buffer.length > RunManager.MAX_BUFFER) this.buffer.shift(); // niente crescita illimitata
+    }
     for (const fn of this.subscribers) fn(e);
   }
 
@@ -76,21 +80,30 @@ export class RunManager {
     this.channels = channels;
     this.startedAt = new Date().toISOString();
     this.buffer = [];
+    this.lastSummary = null;
+    this.broadcast({ type: 'state', status: this.status() });
 
     const log: LogFn = (line) => this.broadcast({ type: 'log', line });
-    exec(log)
+    const finish = (): void => {
+      this.running = false;
+      this.runId = null;
+      this.channels = [];
+      this.startedAt = null;
+    };
+    let execution: Promise<RunSummary>;
+    try { execution = exec(log); }
+    catch (e) { execution = Promise.reject(e); }
+    execution
       .then((summary) => {
         this.lastSummary = summary;
+        finish();
         this.broadcast({ type: 'done', summary });
+        this.broadcast({ type: 'state', status: this.status() });
       })
       .catch((e: unknown) => {
+        finish();
         this.broadcast({ type: 'error', message: (e as Error).message });
-      })
-      .finally(() => {
-        this.running = false;
-        this.runId = null;
-        this.channels = [];
-        this.startedAt = null;
+        this.broadcast({ type: 'state', status: this.status() });
       });
 
     return runId;

@@ -32,6 +32,10 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const ZIP = join(ROOT, 'dist', 'HouseFinder-windows.zip');
+// GNU tar nel PATH interpreta "D:" come host remoto; il tar di Windows legge i percorsi nativi.
+const TAR = process.platform === 'win32'
+  ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
+  : 'tar';
 const PORTA_APP = 3987;
 const PORTA_FEED = 3988;
 const VERSIONE_FINTA = '99.0.0';
@@ -62,7 +66,7 @@ async function mostraDiario(install: string): Promise<void> {
 }
 
 function estrai(zip: string, dest: string): void {
-  execFileSync('tar', ['-xf', zip, '-C', dest], { stdio: 'inherit' });
+  execFileSync(TAR, ['-xf', zip, '-C', dest], { stdio: 'inherit' });
 }
 
 /**

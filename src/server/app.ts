@@ -81,10 +81,10 @@ function queryListings(all: StoredListing[], q: Request['query']): StoredListing
   const sort = typeof q.sort === 'string' ? q.sort : 'score';
 
   let out = all.filter((r) => {
-    // Facebook arriva sotto due canali distinti (`fb-group`, `fb-marketplace`) ma nella UI è una
-    // voce sola: filtrando per uguaglianza non trovava mai niente. Le statistiche del Profilo li
-    // sommavano già, la lista no.
-    if (channel && !(channel === 'facebook' ? r.channel.startsWith('fb') : r.channel === channel)) {
+    // Mantiene sia il canale corrente sia quelli storici, senza migrare l'archivio.
+    if (channel && !(channel === 'facebook'
+      ? ['facebook', 'fb-group', 'fb-marketplace'].includes(r.channel)
+      : r.channel === channel)) {
       return false;
     }
     if (status && r.status !== status) return false;
@@ -139,7 +139,8 @@ export function createApp(deps: AppDeps): Express {
     deps.onShutdown ?? (() => console.warn('[server] spegnimento richiesto ma non collegato'));
 
   const app = express();
-  app.locals.isRunRunning = () => runManager.isRunning;
+  app.locals.isRunRunning = () => runManager.isRunning || store.isMutating;
+  app.locals.isArchiveBusy = () => store.isMutating;
   app.use(express.json());
 
   // --- Meta: cosa è disponibile (per abilitare canali/pulsanti nella UI) ---
@@ -306,41 +307,53 @@ export function createApp(deps: AppDeps): Express {
   app.post('/api/listings/reset', wrap(async (req, res) => {
     if (requireJson(req, res)) return;
     if (rejectIfRunning(res)) return;
-    const n = store.size;
-    store.clear();
-    await store.save();
-    res.json({ ok: true, cleared: n });
+    const result = await store.mutateAndSave(() => {
+      const cleared = store.size;
+      store.clear();
+      return { ok: true, cleared };
+    });
+    res.json(result);
   }));
 
   // Re-filtro AI-free dei record già in archivio: toglie non-residenziali + rumore FB, azzera prezzi brevi.
   app.post('/api/listings/refilter', wrap(async (req, res) => {
     if (requireJson(req, res)) return;
     if (rejectIfRunning(res)) return;
-    const before = store.size;
-    store.forEach((r) => {
-      const txt = `${r.listing.title} ${r.listing.desc ?? ''}`;
-      if (r.listing.price != null && isShortTerm(txt)) r.listing.price = null;
+    const result = await store.mutateAndSave(() => {
+      const before = store.size;
+      store.forEach((r) => {
+        const txt = `${r.listing.title} ${r.listing.desc ?? ''}`;
+        if (r.listing.price != null && isShortTerm(txt)) r.listing.price = null;
+      });
+      const removed = store.prune((r) => {
+        if (!isResidential(r.listing)) return false;
+        if (r.listing.source === 'fb-group' || r.listing.source === 'fb-marketplace') {
+          // I nomi dei gruppi contengono "Camere/Stanze" e falserebbero il segnale dwelling.
+          const desc = (r.listing.desc ?? '').replace(/^\[[^\]]*\]\s*/, '');
+          return looksLikeListing(`${r.listing.title} ${desc}`);
+        }
+        return true;
+      });
+      return { ok: true, removed, before, after: store.size };
     });
-    const removed = store.prune((r) => {
-      if (!isResidential(r.listing)) return false;
-      if (r.listing.source === 'fb-group' || r.listing.source === 'fb-marketplace') {
-        // togli il prefisso "[NomeGruppo · città]" dal desc: i nomi gruppi contengono "Camere/Stanze"
-        // e falserebbero il segnale dwelling.
-        const desc = (r.listing.desc ?? '').replace(/^\[[^\]]*\]\s*/, '');
-        return looksLikeListing(`${r.listing.title} ${desc}`);
-      }
-      return true;
-    });
-    await store.save();
-    res.json({ ok: true, removed, before, after: store.size });
+    res.json(result);
   }));
 
   app.patch('/api/listings/:key/status', wrap(async (req, res) => {
+    if (rejectIfRunning(res)) return;
     const parsed = StatusSchema.safeParse(req.body?.status);
     if (!parsed.success) return res.status(400).json({ error: 'status non valido' });
-    if (!store.setStatus(req.params.key, parsed.data)) return res.status(404).json({ error: 'non trovato' });
-    await store.save();
-    res.json(store.get(req.params.key));
+    const notFound = new Error('non trovato');
+    try {
+      const record = await store.mutateAndSave(() => {
+        if (!store.setStatus(req.params.key, parsed.data)) throw notFound;
+        return structuredClone(store.get(req.params.key));
+      });
+      res.json(record);
+    } catch (e) {
+      if (e === notFound) return res.status(404).json({ error: 'non trovato' });
+      throw e;
+    }
   }));
 
   // --- Config (letta fresca dalla pipeline a ogni run: le modifiche valgono dal run successivo) ---
@@ -382,6 +395,9 @@ export function createApp(deps: AppDeps): Express {
   app.post('/api/runs', (req, res) => {
     const parsed = RunBodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'channels non valido' });
+    if (store.isMutating) {
+      return res.status(409).json({ error: 'Salvataggio archivio in corso: riprova al termine.', code: 'ARCHIVE_BUSY' });
+    }
     const updateLock = readUpdateLock(deps.stateDir ?? 'state');
     if (updateLock && !updateLock.stale) {
       return res.status(409).json({ error: 'Attendi la fine dell’aggiornamento prima di avviare una scansione.', code: 'UPDATE_IN_PROGRESS' });

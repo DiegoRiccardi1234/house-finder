@@ -185,15 +185,34 @@ test('/progress smette di dire "riavvio 95%" quando l\'aggiornamento è finito',
   }
 });
 
-test('DELETE /api/update/lock sblocca un aggiornamento appeso', async () => {
+test('DELETE /api/update/lock non sblocca un aggiornamento ancora vivo', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'hf-lock-'));
   try {
     const app = await server(dir, async () => info());
     acquireLock(dir, 'v99.0.0', 4242);
     assert.ok(readLock(dir));
     const res = await request(app).delete('/api/update/lock');
-    assert.equal(res.status, 200);
+    assert.equal(res.status, 409);
+    assert.equal(res.body.error, 'update_in_progress');
+    assert.ok(readLock(dir));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('DELETE /api/update/lock sblocca solo un lock scaduto ed è idempotente se assente', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hf-stale-unlock-'));
+  try {
+    const app = await server(dir, async () => info());
+    touchLock(dir, 'v99.0.0', 4242);
+    const { utimesSync } = await import('node:fs');
+    const old = new Date(Date.now() - UPDATE_LOCK_TTL_MS - 5_000);
+    utimesSync(join(dir, 'update.lock'), old, old);
+    const progress = await request(app).get('/api/update/progress');
+    assert.equal(progress.body.lockStale, true);
+    assert.equal((await request(app).delete('/api/update/lock')).status, 200);
     assert.equal(readLock(dir), null);
+    assert.equal((await request(app).delete('/api/update/lock')).status, 200);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

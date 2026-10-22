@@ -31,14 +31,20 @@ export function Dashboard({
   refreshToken,
   channels,
   onGoToRun,
+  runRunning,
+  runSynchronized,
+  onArchiveChanged,
 }: {
   filters: ListingFilters;
   onFilters: (f: ListingFilters) => void;
   refreshToken: number;
   channels: ChannelMeta[];
   onGoToRun: () => void;
+  runRunning: boolean;
+  runSynchronized: boolean;
+  onArchiveChanged: () => void;
 }) {
-  const { items, loading, error, refresh, setStatus } = useListings(filters, refreshToken);
+  const { items, loading, error, actionError, refresh, setStatus } = useListings(filters, refreshToken, onArchiveChanged);
   const [searches, setSearches] = useState<SearchProfile[]>([]);
   const [shown, setShown] = useState(PAGE);
   const [mostraFiltri, setMostraFiltri] = useState(false);
@@ -58,6 +64,13 @@ export function Dashboard({
 
   return (
     <div className="flex flex-col gap-4">
+      {runRunning && (
+        <Alert tone="info" title="Scansione in corso">
+          Puoi leggere gli annunci; Preferito, Contattato e Scarta tornano disponibili a fine scansione.
+        </Alert>
+      )}
+      {!runSynchronized && <p role="status" className="text-xs text-muted">Sincronizzo lo stato della scansione…</p>}
+      {actionError && <Alert tone="warn" title="Stato non aggiornato">{actionError}</Alert>}
       {haAnnunci && (
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
@@ -131,7 +144,7 @@ export function Dashboard({
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {visible.map((rec) => (
-              <ListingCard key={rec.key} rec={rec} onStatus={setStatus} />
+              <ListingCard key={rec.key} rec={rec} onStatus={setStatus} statusDisabled={runRunning || !runSynchronized} />
             ))}
           </div>
           {shown < items.length && (

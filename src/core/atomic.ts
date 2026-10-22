@@ -8,12 +8,23 @@ import { dirname } from 'node:path';
  * file finale troncato, e `readJsonResilient` può ripartire dal `.bak` se serve.
  */
 export async function writeFileAtomic(path: string, data: string): Promise<void> {
+  await writeAtomic(path, data, false);
+}
+
+/** Il backup JSON conserva l'ultima copia leggibile anche dopo un recupero da .bak. */
+export async function writeJsonAtomic(path: string, data: unknown): Promise<void> {
+  await writeAtomic(path, JSON.stringify(data, null, 2) + '\n', true);
+}
+
+async function writeAtomic(path: string, data: string, jsonBackup: boolean): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   // Backup del buono precedente (se non esiste ancora, ignora).
   try {
+    // Il main può essere ancora corrotto dopo readJsonResilient: non copiarlo sul backup buono.
+    if (jsonBackup) JSON.parse(await readFile(path, 'utf8'));
     await copyFile(path, `${path}.bak`);
   } catch {
-    /* nessun file precedente: primo salvataggio */
+    /* primo salvataggio, main JSON illeggibile o backup best-effort non disponibile */
   }
   const tmp = `${path}.tmp`;
   await writeFile(tmp, data, 'utf8');

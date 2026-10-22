@@ -1,4 +1,4 @@
-import { useUpdate, type UpdatePhase } from '../hooks';
+import { useUpdate } from '../hooks';
 import type { UpdateProgress, UpdateStep } from '../types';
 import { Alert } from '../ui/Alert';
 import { Badge } from '../ui/Badge';
@@ -57,10 +57,6 @@ function Barra({ pct }: { pct: number }) {
   );
 }
 
-function tonoFase(phase: UpdatePhase): 'warn' | 'danger' {
-  return phase === 'timeout' ? 'warn' : 'danger';
-}
-
 export function UpdatePanel() {
   const { info, progress, phase, message, check, start, unlock } = useUpdate();
 
@@ -100,7 +96,7 @@ export function UpdatePanel() {
         </Alert>
       )}
 
-      {info.updateAvailable && !inCorso && phase !== 'error' && phase !== 'timeout' && (
+      {info.updateAvailable && !inCorso && phase !== 'error' && (
         <div className="flex flex-col gap-3">
           {info.notes && (
             <details className="text-sm text-muted">
@@ -145,16 +141,16 @@ export function UpdatePanel() {
         </div>
       )}
 
-      {(phase === 'error' || phase === 'timeout') && (
-        <Alert tone={tonoFase(phase)} title="Aggiornamento non riuscito">
+      {phase === 'error' && (
+        <Alert tone="danger" title="Aggiornamento non riuscito">
           <p>{message}</p>
           <p className="mt-2 text-xs">
             Il diario completo è in <code>state\logs\updater.log</code>. Se il file bloccato è
             nominato lì, di solito è l'antivirus: riprova fra un minuto.
           </p>
           <div className="mt-2 flex gap-2">
-            <Button size="sm" onClick={() => void unlock()}>
-              Sblocca e riprova
+            <Button size="sm" onClick={() => void unlock()} disabled={progress?.busy}>
+              {progress?.lockStale ? 'Sblocca e riprova' : 'Riprova'}
             </Button>
             {info.releaseUrl && (
               <a

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ListingStore } from '../src/core/store.js';
 import { createApp } from '../src/server/app.js';
-import { RunManager, RunBusyError } from '../src/server/runManager.js';
+import { RunManager, RunBusyError, type SseEvent } from '../src/server/runManager.js';
 import type { RunSummary } from '../src/core/pipeline.js';
 import type { Listing } from '../src/core/types.js';
 
@@ -67,8 +67,80 @@ test('GET /api/meta: i canali scraper seguono la presenza dei browser', async ()
   await rm(dir, { recursive: true, force: true });
 });
 
-test('PATCH status: persiste, 404, 400', async () => {
-  const { dir, app } = await setup();
+test('filtro Facebook: include canale corrente e due varianti storiche, coerente con stats', async () => {
+  const { dir, app, store } = await setup();
+  try {
+    for (const [i, channel] of ['facebook', 'fb-group', 'fb-marketplace'].entries()) {
+      store.upsert(L(`fb${i}`, { source: i === 2 ? 'fb-marketplace' : 'fb-group' }), 'T', { channel });
+    }
+    const filtered = await request(app).get('/api/listings?channel=facebook');
+    assert.equal(filtered.status, 200);
+    assert.deepEqual(filtered.body.map((r: { channel: string }) => r.channel).sort(), ['facebook', 'fb-group', 'fb-marketplace']);
+    const stats = await request(app).get('/api/stats');
+    assert.equal(stats.body.byChannel.facebook + stats.body.byChannel['fb-group'] + stats.body.byChannel['fb-marketplace'], filtered.body.length);
+    assert.equal((await request(app).get('/api/listings?channel=email')).body.length, 1);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+for (const operation of ['reset', 'refilter', 'status'] as const) {
+  test(`API ${operation}: fallimento save ripristina RAM e il successivo save conserva i dati`, async (t) => {
+    const { dir, app, store } = await setup();
+    try {
+      store.upsert(L('garage', { title: 'Garage posto auto' }), 'T');
+      await store.save();
+      const before = store.checkpoint();
+      const realSave = store.save.bind(store);
+      let calls = 0;
+      t.mock.method(store, 'save', async () => {
+        if (++calls === 1) throw new Error('disco pieno');
+        await realSave();
+      });
+      const response = operation === 'status'
+        ? await request(app).patch('/api/listings/immobiliare:1/status').send({ status: 'favorite' })
+        : await request(app).post(`/api/listings/${operation}`).send({});
+      assert.equal(response.status, 500);
+      assert.deepEqual(store.checkpoint(), before);
+      assert.deepEqual((await ListingStore.load(join(dir, 'listings.json'))).checkpoint(), before);
+      await store.save();
+      assert.deepEqual((await ListingStore.load(join(dir, 'listings.json'))).checkpoint(), before);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+}
+
+test('scansione e aggiornamento attendono anche le mutazioni archivio pendenti', async (t) => {
+  const { dir, store } = await setup();
+  let release: () => void = () => {};
+  let entered: () => void = () => {};
+  const saving = new Promise<void>((r) => { entered = r; });
+  const pending = new Promise<void>((r) => { release = r; });
+  const realSave = store.save.bind(store);
+  t.mock.method(store, 'save', async () => { entered(); await pending; await realSave(); });
+  let runs = 0;
+  const app = createApp({ store, profileConfigured: () => true, runPipeline: async () => {
+    runs++;
+    return { runId: 'r', channels: [], results: [], startedAt: '', finishedAt: '' };
+  } });
+  const patch = request(app).patch('/api/listings/immobiliare:1/status').send({ status: 'favorite' }).then((res) => res);
+  try {
+    await saving;
+    assert.equal(app.locals.isRunRunning(), true);
+    const busy = await request(app).post('/api/runs').send({ channels: ['email'] });
+    assert.equal(busy.status, 409);
+    assert.equal(busy.body.code, 'ARCHIVE_BUSY');
+    assert.equal(runs, 0);
+    release();
+    assert.equal((await patch).status, 200);
+    assert.equal((await request(app).post('/api/runs').send({ channels: ['email'] })).status, 202);
+    assert.equal(runs, 1);
+  } finally {
+    release();
+    await patch;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('PATCH status: persiste, 404 senza scrivere, 400', async (t) => {
+  const { dir, app, store } = await setup();
   const ok = await request(app).patch('/api/listings/immobiliare:1/status').send({ status: 'favorite' });
   assert.equal(ok.status, 200);
   assert.equal(ok.body.status, 'favorite');
@@ -76,8 +148,10 @@ test('PATCH status: persiste, 404, 400', async () => {
   const reloaded = await ListingStore.load(join(dir, 'listings.json'));
   assert.equal(reloaded.get('immobiliare:1')?.status, 'favorite');
 
+  const save = t.mock.method(store, 'save', async () => { throw new Error('non deve salvare'); });
   const notFound = await request(app).patch('/api/listings/nope:0/status').send({ status: 'favorite' });
   assert.equal(notFound.status, 404);
+  assert.equal(save.mock.callCount(), 0);
 
   const bad = await request(app).patch('/api/listings/immobiliare:1/status').send({ status: 'boh' });
   assert.equal(bad.status, 400);
@@ -171,6 +245,7 @@ test('endpoint distruttivi: 409 mentre una run è in corso', async () => {
 
   assert.equal((await request(app).post('/api/listings/reset').send({})).status, 409);
   assert.equal((await request(app).post('/api/listings/refilter').send({})).status, 409);
+  assert.equal((await request(app).patch('/api/listings/immobiliare:1/status').send({ status: 'favorite' })).status, 409);
   assert.equal((await request(app).put('/api/config/criteria').send({ content: 'X' })).status, 409);
 
   release({ runId: 'x', channels: ['email'], results: [], startedAt: '', finishedAt: '' });
@@ -201,4 +276,59 @@ test('RunManager: guardia busy + replay buffer + done', async () => {
   await new Promise((r) => setImmediate(r));
   assert.equal(rm.isRunning, false);
   assert.ok(events.some((e) => e.type === 'done'));
+});
+
+test('RunManager: due schede e riconnessione ricevono stato corrente, anche dentro done', async () => {
+  const manager = new RunManager();
+  const first: SseEvent[] = [];
+  const second: SseEvent[] = [];
+  manager.subscribe((e) => {
+    first.push(e);
+    if (e.type === 'done') assert.deepEqual(manager.status(), {
+      running: false, runId: null, channels: [], startedAt: null, summary: e.summary,
+    });
+  });
+  assert.deepEqual(first, [{ type: 'state', status: manager.status() }]);
+  let release: (s: RunSummary) => void = () => {};
+  const pending = new Promise<RunSummary>((r) => { release = r; });
+  const id = manager.start(['facebook'], (log) => { log('raccolta'); return pending; });
+  const started = first.find((e) => e.type === 'state' && e.status.running);
+  assert.ok(started?.type === 'state');
+  assert.equal(started.status.runId, id);
+  assert.equal(started.status.summary, null);
+  manager.subscribe((e) => second.push(e));
+  assert.deepEqual(second.map((e) => e.type), ['log', 'state']);
+  assert.deepEqual(second.at(-1), { type: 'state', status: manager.status() });
+  const summary: RunSummary = { runId: id, channels: ['facebook'], results: [], startedAt: 'T', finishedAt: 'T2' };
+  release(summary);
+  await pending;
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(first.at(-1), { type: 'state', status: manager.status() });
+  assert.deepEqual(second.at(-1), first.at(-1));
+  assert.equal(manager.status().running, false);
+  const reconnected: SseEvent[] = [];
+  manager.subscribe((e) => reconnected.push(e));
+  assert.equal(reconnected.filter((e) => e.type === 'state').length, 1, 'nessuno stato vecchio nel replay');
+  assert.deepEqual(reconnected.at(-1), { type: 'state', status: manager.status() });
+});
+
+test('RunManager: errore anche sincrono termina la run e rimuove il riepilogo precedente', async () => {
+  const manager = new RunManager();
+  const summary: RunSummary = { runId: 'old', channels: ['email'], results: [], startedAt: '', finishedAt: '' };
+  manager.start(['email'], async () => summary);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(manager.status().summary, summary);
+  const events: SseEvent[] = [];
+  const unsubscribe = manager.subscribe((e) => {
+    events.push(e);
+    if (e.type === 'error') assert.equal(manager.isRunning, false);
+  });
+  events.length = 0;
+  manager.start(['email'], () => { throw new Error('canale non disponibile'); });
+  assert.equal(manager.status().summary, null);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(events.map((e) => e.type), ['state', 'error', 'state']);
+  assert.equal(manager.status().summary, null);
+  assert.deepEqual(events.at(-1), { type: 'state', status: manager.status() });
+  unsubscribe();
 });

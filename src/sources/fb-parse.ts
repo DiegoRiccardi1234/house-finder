@@ -100,8 +100,9 @@ export function stripFbChrome(text: string): string {
 const DWELLING =
   /stanz[ae]?|singol|doppia|posto\s*letto|monolocal|monovan|bilocal|trilocal|quadrilocal|appartament|\bloft\b|attico|alloggio|\bcamera\b|\bcamere\b|\blocal[ei]\b/i;
 // Domanda/ricerca (NON offerta): chi cerca o commenta, non chi affitta.
+// "Cerco inquilino" e "scrivetemi" sono normali frasi del locatore, non ricerche di casa.
 const DEMAND =
-  /\bcerco\b|cercasi|in cerca|sono interess|sono intres|\binteressat[oa]|\bintresat|ti ho scritto|scrivetemi|poss[oi]\s+(avere|venire|sapere)|potre[ib]{1,2}\s+(avere|sapere|venire)|qualcun[oa]\s+(ha|sa|cerca)|ancora\s+(disponibil|liber)|(è|e')\s*ancora\s*(liber|disponibil)|libera\?|disponibile\?|\?\s*$/i;
+  /\b(?:cerco|cercasi)\b(?!\s+(?:(?:un[ao]?|un')\s*)?(?:inquilin[oaie]|coinquilin[oaie]|affittuar[ioa]|locatari[oaie])\b)|in cerca|sono interess|sono intres|ti ho scritto|poss[oi]\s+(avere|venire|sapere)|potre[ib]{1,2}\s+(avere|sapere|venire)|qualcun[oa]\s+(ha|sa|cerca)|ancora\s+(disponibil|liber)|(è|e')\s*ancora\s*(liber|disponibil)|libera\?|disponibile\?|\?\s*$/i;
 // Vendita (arredamento, ecc.), non affitto.
 const SALE = /\bvendo\b|vendesi|in vendita|\bvend[eo]\b/i;
 

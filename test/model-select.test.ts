@@ -131,3 +131,13 @@ test('rankModels: fetch sconosciuto mantiene candidati e apprende penalità per 
   assert.deepEqual(rankModels(candidates, new Map(), { penaltyOf: (m) => penaltyScore(`groq::${m}`) }), ['b', 'a']);
   clearPenalties();
 });
+
+test('rankModels: uptime null è assente, non sano; nessun fallback per modelli noti esclusi', () => {
+  clearPenalties();
+  const missing = 'a/model-29b:free';
+  const low = 'b/model-29b:free';
+  const healthy = 'c/model-29b:free';
+  const hs = map([H(missing, { uptime5m: null, uptime30m: null }), H(low, { uptime5m: 89 }), H(healthy)]);
+  assert.deepEqual(rankModels([missing, low, healthy, 'fetch-failed'], hs), [healthy, 'fetch-failed']);
+  assert.deepEqual(rankModels([missing, low], hs), []);
+});

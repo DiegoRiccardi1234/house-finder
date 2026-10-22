@@ -22,7 +22,11 @@ import type {
 } from './types';
 
 async function json<T>(r: Response): Promise<T> {
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({})) as { detail?: string; error?: string };
+    if (r.status === 409) throw new Error(body.detail ?? 'Archivio occupato: attendi la fine della scansione o dell’operazione in corso e riprova.');
+    throw new Error(body.detail ?? body.error ?? `HTTP ${r.status}`);
+  }
   return r.json() as Promise<T>;
 }
 

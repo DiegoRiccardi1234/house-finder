@@ -107,9 +107,11 @@ function meta(l: StoredListing['listing']): string {
 export function ListingCard({
   rec,
   onStatus,
+  statusDisabled = false,
 }: {
   rec: StoredListing;
   onStatus: (key: string, status: ListingStatus) => void;
+  statusDisabled?: boolean;
 }) {
   const l = rec.listing;
   const dimmed = rec.status === 'dismissed';
@@ -186,9 +188,11 @@ export function ListingCard({
               <button
                 key={a.status}
                 aria-pressed={active}
+                disabled={statusDisabled}
+                title={statusDisabled ? 'Attendi la fine della scansione per cambiare lo stato.' : undefined}
                 onClick={() => onStatus(rec.key, active ? 'new' : a.status)}
                 className={cx(
-                  'rounded-[var(--radius-btn)] px-2.5 py-1 font-mono text-[0.62rem] uppercase tracking-[0.08em] transition-colors duration-150',
+                  'rounded-[var(--radius-btn)] px-2.5 py-1 font-mono text-[0.62rem] uppercase tracking-[0.08em] transition-colors duration-150 disabled:cursor-wait disabled:opacity-50',
                   active ? a.on : 'bg-surface-3 text-muted hover:bg-surface-hi hover:text-ink',
                 )}
                 style={{ fontFamily: 'var(--font-mono)' }}

@@ -73,7 +73,10 @@ export async function resolveFromHtml(html: string, source: string, linkRe: RegE
     const href = node.attr('href') ?? '';
     if (safeDecode(href).match(linkRe) || isEmailAction(href)) return;
     const label = `${node.text()} ${node.find('img').attr('alt') ?? ''}`.replace(/\s+/g, ' ').trim();
-    if (isEmailAction(label) || !/appartamento|bilocale|trilocale|monolocale|quadrilocale|stanza|camera|\bvia\b|\bviale\b|vedi\s+annuncio|visualizza\s+annuncio/i.test(label)) return;
+    if (isEmailAction(label) || /^(?:(?:leggi|scopri|tutte|tutti)\b.*\b(?:notizi[ae]|articol[oi]|news)\b|newsletter\b|blog\b)/i.test(label)) return;
+    // Anche un titolo generico ("Casa in centro") o un'immagine senza alt può essere
+    // una card. Prezzo + metratura/locali restano necessari; il resolver mantiene
+    // l'allowlist di rete e le azioni/footer restano escluse.
     let parent = node;
     for (let i = 0; i < 5; i++, parent = parent.parent()) {
       const text = parent.text().replace(/\s+/g, ' ').trim();

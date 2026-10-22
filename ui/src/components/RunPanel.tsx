@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useRunStream } from '../hooks';
+import type { useRunStream } from '../hooks';
 import type { Meta } from '../types';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
@@ -17,14 +17,14 @@ import { cx } from '../ui/cx';
  */
 export function RunPanel({
   meta,
-  onDone,
+  stream,
   onVediAnnunci,
 }: {
   meta: Meta | null;
-  onDone: () => void;
+  stream: ReturnType<typeof useRunStream>;
   onVediAnnunci: () => void;
 }) {
-  const { lines, running, summary, start } = useRunStream(onDone);
+  const { lines, running, summary, start, synchronized } = stream;
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -90,11 +90,13 @@ export function RunPanel({
             variant="primary"
             onClick={() => start(usable)}
             loading={running}
-            disabled={usable.length === 0 || !meta?.profileConfigured}
+            disabled={usable.length === 0 || !meta?.profileConfigured || !synchronized}
             className="mt-2 w-full"
           >
             {running ? 'Scansione in corso' : 'Cerca adesso'}
           </Button>
+
+          {!synchronized && <p role="status" className="text-xs text-muted">Sincronizzo lo stato della scansione…</p>}
 
           {/* Un pulsante spento senza spiegazione è indistinguibile da un pulsante rotto. */}
           {!running && usable.length === 0 && (

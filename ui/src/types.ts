@@ -268,6 +268,7 @@ export interface UpdateProgress {
   detail: string | null;
   ts: number | null;
   busy: boolean;
+  lockStale: boolean;
 }
 
 export interface SaveKeyResult {
@@ -306,9 +307,18 @@ export interface RunEsito {
 }
 
 export type SseEvent =
+  | { type: 'state'; status: RunStatus }
   | { type: 'log'; line: string }
   | { type: 'done'; summary: RunSummary }
   | { type: 'error'; message: string };
+
+export interface RunStatus {
+  running: boolean;
+  runId: string | null;
+  channels: string[];
+  startedAt: string | null;
+  summary: RunSummary | null;
+}
 
 export interface ListingFilters {
   channel: string;

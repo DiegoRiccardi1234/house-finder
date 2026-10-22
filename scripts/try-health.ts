@@ -20,7 +20,8 @@ function fmt(slug: string, h: ModelHealth | null): string {
   const meta = `${m.sizeB ?? '?'}B ${m.instruct ? 'instruct' : 'base'}${m.free ? ' free' : ''}`;
   if (!h) return `  ${slug.padEnd(52)} ?       (fetch fallito)          [${meta}]`;
   const state = h.alive ? 'VIVO ' : 'MORTO';
-  return `  ${slug.padEnd(52)} ${state}  up5m=${h.uptime5m.toFixed(1).padStart(5)}  thr=${h.throughput.toFixed(0).padStart(4)}  ep=${h.endpointCount}  [${meta}]`;
+  const uptime = h.uptime5m == null ? 'n/d' : h.uptime5m.toFixed(1);
+  return `  ${slug.padEnd(52)} ${state}  up5m=${uptime.padStart(5)}  thr=${h.throughput.toFixed(0).padStart(4)}  ep=${h.endpointCount}  [${meta}]${h.alive && h.uptime5m == null ? ' telemetria assente' : ''}`;
 }
 
 async function report(label: string, candidates: string[], taskAware: boolean): Promise<string[]> {

@@ -37,9 +37,9 @@
   "dependencies": {
     "cheerio": "^1.1.0",
     "dotenv": "^16.4.7",
-    "express": "^4.22.2",
-    "imapflow": "^1.4.3",
-    "mailparser": "^3.9.12",
+    "express": "^4.22.3",
+    "imapflow": "^1.7.8",
+    "mailparser": "^3.12.4",
     "openai": "^6.45.0",
     "playwright": "^1.49.1",
     "zod": "^4.4.3"

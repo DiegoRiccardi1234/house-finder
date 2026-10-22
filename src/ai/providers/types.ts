@@ -27,6 +27,8 @@ export interface ChatRequest {
   messages: ChatMessage[];
   /** Chiede JSON: chi non lo supporta nativamente degrada (prefill o solo prompt). */
   json?: boolean;
+  /** Preferenza per task JSON; solo gli adapter/modelli compatibili la applicano. */
+  reasoning?: boolean;
   maxTokens?: number;
 }
 

@@ -74,22 +74,42 @@ export async function downloadAsset(
   asset: ReleaseAsset,
   dest: string,
   onProgress: (received: number, total: number) => void,
+  options: { idleTimeoutMs?: number; timeoutMs?: number } = {},
 ): Promise<void> {
   await mkdir(dirname(dest), { recursive: true });
-  const res = await fetch(asset.url, {
-    headers: { 'User-Agent': 'HouseFinder', Accept: 'application/octet-stream' },
-    redirect: 'follow',
-  });
-  if (!res.ok || !res.body) throw new Error(`Download fallito: HTTP ${res.status}`);
-
-  const total = Number(res.headers.get('content-length') ?? asset.size ?? 0);
-  let received = 0;
-  const body = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
-  body.on('data', (chunk: Buffer) => {
-    received += chunk.length;
-    onProgress(received, total);
-  });
-  await pipeline(body, createWriteStream(dest));
+  const controller = new AbortController();
+  const idleTimeoutMs = options.idleTimeoutMs ?? 60_000;
+  let idle: ReturnType<typeof setTimeout>;
+  const resetIdle = () => {
+    clearTimeout(idle);
+    idle = setTimeout(() => controller.abort(new Error('Download fermo: nessun avanzamento per 60 secondi. Riprova.')), idleTimeoutMs);
+  };
+  const deadline = setTimeout(() => controller.abort(new Error('Download troppo lungo: riprova più tardi.')), options.timeoutMs ?? 10 * 60_000);
+  resetIdle();
+  try {
+    const res = await fetch(asset.url, {
+      headers: { 'User-Agent': 'HouseFinder', Accept: 'application/octet-stream' },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!res.ok || !res.body) throw new Error(`Download fallito: HTTP ${res.status}`);
+    const total = Number(res.headers.get('content-length') ?? asset.size ?? 0);
+    let received = 0;
+    const body = Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]);
+    body.on('data', (chunk: Buffer) => {
+      if (chunk.length) resetIdle();
+      received += chunk.length;
+      onProgress(received, total);
+    });
+    await pipeline(body, createWriteStream(dest), { signal: controller.signal });
+  } catch (error) {
+    await rm(dest, { force: true }).catch(() => {});
+    if (controller.signal.aborted) throw controller.signal.reason;
+    throw error;
+  } finally {
+    clearTimeout(idle!);
+    clearTimeout(deadline);
+  }
 }
 
 /**

@@ -6,7 +6,7 @@ import { recordPenalty, beginScoringTask, endScoringTask } from './endpoint-heal
 import { buildChainForTask } from './failover.js';
 import { configuredProviders, markKeyInvalid } from './credentials.js';
 import { getProvider } from './providers/registry.js';
-import { classifyFailure, InvalidKeyError } from './providers/errors.js';
+import { classifyFailure, InvalidKeyError, InvalidJsonCompletionError } from './providers/errors.js';
 import { refKey, type ModelRef } from './providers/types.js';
 
 /** Risultato per annuncio: campi normalizzati + giudizio, da UNA sola chiamata AI. */
@@ -15,8 +15,8 @@ export interface ScoreResult {
   fields: ListingFields;
 }
 
-// Schema di UN item: campi normalizzati + giudizio. Ogni campo ha `.catch` così un valore
-// malformato del modello free diventa null invece di far fallire l'intero gruppo.
+// Schema di UN item: campi estratti tolleranti, ma il voto deve essere valido.
+// Un item privo di voto resta da valutare: non convertirlo in uno zero definitivo.
 const Item = z.object({
   id: z.string(),
   citta: z.string().nullable().catch(null),
@@ -38,7 +38,7 @@ const Item = z.object({
   vincoli_inquilino: z.array(z.string()).catch([]),
   contatto: z.string().nullable().catch(null),
   riassunto: z.string().nullable().catch(null),
-  score: z.coerce.number().catch(0),
+  score: z.number().finite().min(0).max(100),
   verdict: z.string().catch(''),
   pros: z.array(z.string()).catch([]),
   cons: z.array(z.string()).catch([]),
@@ -144,12 +144,18 @@ async function callModel(ref: ModelRef, listings: Listing[]): Promise<Map<string
   const reply = await getProvider(ref.provider).chat({
     model: ref.model,
     json: true,
+    ...(ref.provider === 'openrouter' ? { reasoning: false } : {}),
     messages: [
       { role: 'system', content: SYSTEM },
       { role: 'user', content: buildPrompt(listings) },
     ],
   });
-  return parseScoreResponse(reply.text, new Set(listings.map(dedupKey)));
+  try {
+    return parseScoreResponse(reply.text, new Set(listings.map(dedupKey)));
+  } catch (e) {
+    if (e instanceof SyntaxError || e instanceof z.ZodError) throw new InvalidJsonCompletionError(ref.model);
+    throw e;
+  }
 }
 
 /**

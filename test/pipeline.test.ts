@@ -48,6 +48,15 @@ test('ingest: registra channel e photos sui nuovi', async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test('ingest Facebook: il canale corrente raggruppa gruppi e marketplace', async () => {
+  const { dir, store } = await freshStore();
+  try {
+    await ingest([L('g', { source: 'fb-group' }), L('m', { source: 'fb-marketplace' })], 'facebook', { store, score: false });
+    assert.deepEqual(store.all().map((r) => r.channel), ['facebook', 'facebook']);
+    assert.deepEqual(store.all().map((r) => r.listing.source), ['fb-group', 'fb-marketplace']);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test('re-run: non-nuovo, status utente preservato, lastSeen aggiornato', async () => {
   const { dir, path, store } = await freshStore();
   await ingest([L('1', { thumb: 'p.jpg' })], 'immobiliare', { store, score: false });

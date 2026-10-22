@@ -5,6 +5,13 @@ import type { ChatMessage, ChatRequest, ChatReply, Provider, ProviderCaps, Provi
 /** Modelli che hanno rifiutato `response_format`: si degrada per il resto della sessione. */
 const noJsonMode = new Set<string>();
 
+// Thinking disattivabile, verificato sulle schede dei modelli OpenRouter del pool.
+const OPTIONAL_REASONING = new Set([
+  'google/gemma-4-26b-a4b-it',
+  'google/gemma-4-31b-it',
+  'xingchen-agi/xing4.0-29b-a4b',
+]);
+
 function toOpenAiMessages(messages: ChatMessage[]): OpenAI.Chat.ChatCompletionMessageParam[] {
   return messages.map((m) => {
     if (typeof m.content === 'string') return { role: m.role, content: m.content } as never;
@@ -42,6 +49,8 @@ export function createCompatProvider(cfg: {
       model: req.model,
       ...(withJson ? { response_format: { type: 'json_object' as const } } : {}),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+      ...(cfg.id === 'openrouter' && req.reasoning != null && OPTIONAL_REASONING.has(req.model.replace(/:free$/, ''))
+        ? { reasoning: { enabled: req.reasoning } } : {}),
       messages: toOpenAiMessages(req.messages),
     });
   }

@@ -11,6 +11,7 @@ import type {
   JobId,
   JobState,
   RunEsito,
+  RunSummary,
 } from './types';
 
 /** Ritarda un valore: evita una fetch per ogni tasto digitato nella ricerca. */
@@ -104,11 +105,9 @@ export function useJob(id: JobId): {
   return { state, busy: state?.running === true, start };
 }
 
-/** Quanto si aspetta che il server torni su dopo la sostituzione dei file. */
-const RIAVVIO_TIMEOUT_MS = 300_000;
 const SONDAGGIO_MS = 2_000;
 
-export type UpdatePhase = 'idle' | 'running' | 'error' | 'timeout';
+export type UpdatePhase = 'idle' | 'running' | 'error';
 
 /**
  * Il controllo aggiornamenti e il pulsante che lo applica.
@@ -135,6 +134,7 @@ export function useUpdate(): {
   const [token, setToken] = useState(0);
   const [force, setForce] = useState(false);
   const versioneIniziale = useRef<string | null>(null);
+  const attemptStartedAt = useRef<number | null>(null);
 
   useEffect(() => {
     let vivo = true;
@@ -166,17 +166,28 @@ export function useUpdate(): {
 
   useEffect(() => {
     if (phase !== 'running') return;
-    const scadenza = Date.now() + RIAVVIO_TIMEOUT_MS;
     let fermo = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     const giro = async (): Promise<void> => {
       if (fermo) return;
       try {
         const p = await api.updateProgress();
+        if (fermo) return;
         setProgress(p);
-        if (p.step === 'error') {
+        const currentAttempt = attemptStartedAt.current === null || (p.ts !== null && p.ts >= attemptStartedAt.current);
+        if (currentAttempt && p.step === 'error') {
           setPhase('error');
           setMessage(p.detail ?? 'Aggiornamento non riuscito.');
+          return;
+        }
+        if (!p.busy && p.lockStale && p.step !== 'done') {
+          setPhase('error');
+          setMessage('L’aggiornamento si è interrotto. Puoi riprovare quando il blocco non è più attivo.');
+          return;
+        }
+        if (currentAttempt && p.step === 'done') {
+          window.location.reload();
           return;
         }
       } catch {
@@ -184,6 +195,7 @@ export function useUpdate(): {
       }
       try {
         const meta = await api.meta();
+        if (fermo) return;
         if (versioneIniziale.current && meta.version !== versioneIniziale.current) {
           window.location.reload();
           return;
@@ -191,19 +203,13 @@ export function useUpdate(): {
       } catch {
         /* server ancora giù */
       }
-      if (Date.now() > scadenza) {
-        setPhase('timeout');
-        setMessage(
-          'Il programma non è tornato su entro cinque minuti. Il diario è in ' +
-            'state\\logs\\updater.log.',
-        );
-        return;
-      }
-      setTimeout(() => void giro(), SONDAGGIO_MS);
+      // Una connessione lenta non rende morto il lavoro: è il heartbeat server a decidere.
+      if (!fermo) timer = setTimeout(() => void giro(), SONDAGGIO_MS);
     };
     void giro();
     return () => {
       fermo = true;
+      clearTimeout(timer);
     };
   }, [phase]);
 
@@ -214,10 +220,13 @@ export function useUpdate(): {
 
   const start = useCallback(async () => {
     setMessage(null);
-    const res = await api.startUpdate();
+    attemptStartedAt.current = Date.now();
+    let res: Response;
+    try { res = await api.startUpdate(); }
+    catch (e) { setPhase('error'); setMessage((e as Error).message); return; }
     if (res.status === 202) {
       setPhase('running');
-      setProgress({ step: 'download', pct: 1, detail: 'avvio', ts: Date.now(), busy: true });
+      setProgress({ step: 'download', pct: 1, detail: 'avvio', ts: Date.now(), busy: true, lockStale: false });
       return;
     }
     const body = (await res.json().catch(() => ({}))) as { detail?: string; error?: string };
@@ -227,19 +236,24 @@ export function useUpdate(): {
 
   /** Sblocca un aggiornamento rimasto appeso: senza, il pulsante resta morto per due minuti. */
   const unlock = useCallback(async () => {
-    await api.clearUpdateLock().catch(() => {});
-    setPhase('idle');
-    setMessage(null);
-    setToken((n) => n + 1);
-  }, []);
+    try {
+      if (progress?.lockStale) await api.clearUpdateLock();
+      setPhase('idle');
+      setMessage(null);
+      setToken((n) => n + 1);
+    } catch (e) {
+      setMessage((e as Error).message);
+    }
+  }, [progress?.lockStale]);
 
   return { info, progress, phase, message, check, start, unlock };
 }
 
-export function useListings(filters: ListingFilters, refreshToken = 0) {
+export function useListings(filters: ListingFilters, refreshToken = 0, onChanged?: () => void) {
   const [items, setItems] = useState<StoredListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [manual, setManual] = useState(0);
   const abort = useRef<AbortController | null>(null);
 
@@ -280,15 +294,17 @@ export function useListings(filters: ListingFilters, refreshToken = 0) {
   const refresh = useCallback(() => setManual((n) => n + 1), []);
 
   const setStatus = useCallback(async (key: string, status: ListingStatus) => {
+    setActionError(null);
     try {
       const updated = await api.setStatus(key, status);
       setItems((prev) => prev.map((r) => (r.key === key ? updated : r)));
+      onChanged?.();
     } catch (e) {
-      setError(`Azione non riuscita: ${(e as Error).message}`); // niente più fallimento silenzioso
+      setActionError((e as Error).message);
     }
-  }, []);
+  }, [onChanged]);
 
-  return { items, loading, error, refresh, setStatus };
+  return { items, loading, error, actionError, refresh, setStatus };
 }
 
 /**
@@ -299,11 +315,30 @@ export function useRunStream(onDone: () => void) {
   const [lines, setLines] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [summary, setSummary] = useState<RunEsito | null>(null);
+  const [synchronized, setSynchronized] = useState(false);
+  const [starting, setStarting] = useState(false);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
   useEffect(() => {
     const es = new EventSource('/api/runs/stream');
+    let runId: string | null = null;
+    let completedId: string | null = null;
+    let awaitingSnapshot = true;
+    const showSummary = (value: RunSummary) => {
+      const r = value.results ?? [];
+      const errors = [...new Set(r.flatMap((x) => x.errors.map((message) => `${x.channel}: ${message}`)))];
+      const outcome = value.outcome ?? (errors.length ? 'partial' : 'succeeded');
+      setSummary({ nuovi: r.reduce((n, x) => n + (x.fresh ?? 0), 0),
+        visti: r.reduce((n, x) => n + (x.unique ?? 0), 0), canali: r.length, outcome, errors });
+      if (completedId !== value.runId) {
+        completedId = value.runId;
+        onDoneRef.current();
+      }
+    };
+    // Il server ripete il buffer alla riconnessione: sostituisce il log, non lo duplica.
+    es.onopen = () => { awaitingSnapshot = true; setLines([]); };
+    es.onerror = () => setSynchronized(false);
     es.onmessage = (e) => {
       let ev: SseEvent;
       try {
@@ -311,34 +346,31 @@ export function useRunStream(onDone: () => void) {
       } catch {
         return;
       }
-      if (ev.type === 'log') setLines((l) => [...l, ev.line]);
+      if (ev.type === 'state') {
+        setSynchronized(true);
+        setRunning(ev.status.running);
+        if (ev.status.running) {
+          if (!awaitingSnapshot && runId !== ev.status.runId) setLines([]);
+          runId = ev.status.runId;
+          setSummary(null);
+        } else if (ev.status.summary) showSummary(ev.status.summary);
+        else setSummary(null);
+        awaitingSnapshot = false;
+      } else if (ev.type === 'log') setLines((l) => [...l.slice(-499), ev.line]);
       else if (ev.type === 'done') {
         setRunning(false);
         // Il riepilogo arrivava e finiva nel nulla: l'unica traccia di una ricerca era una riga
         // di log. Chi la lanciava non sapeva quanti annunci fossero arrivati, né dove guardarli.
-        const r = ev.summary?.results ?? [];
-        const errors = [...new Set(r.flatMap((x) => x.errors.map((message) => `${x.channel}: ${message}`)))];
-        const outcome = ev.summary.outcome ?? (errors.length ? 'partial' : 'succeeded');
-        setSummary({
-          nuovi: r.reduce((n, x) => n + (x.fresh ?? 0), 0),
-          visti: r.reduce((n, x) => n + (x.unique ?? 0), 0),
-          canali: r.length,
-          outcome,
-          errors,
-        });
+        showSummary(ev.summary);
+        const outcome = ev.summary.outcome ?? 'succeeded';
         setLines((l) => [...l, outcome === 'succeeded' ? '✅ Ricerca conclusa.' : outcome === 'partial' ? '⚠️ Ricerca conclusa con problemi.' : '❌ Ricerca non riuscita.']);
-        onDoneRef.current();
       } else if (ev.type === 'error') {
         setRunning(false);
         setLines((l) => [...l, `❌ ERRORE: ${ev.message}`]);
         onDoneRef.current();
       }
     };
-    // stato iniziale (se una run è già in corso all'apertura)
-    fetch('/api/runs/current')
-      .then((r) => r.json())
-      .then((s: { running: boolean }) => setRunning(!!s.running))
-      .catch(() => {});
+    // Lo snapshot SSE arriva dopo il replay: niente GET concorrente che possa riattivare una run conclusa.
     return () => es.close();
   }, []);
 
@@ -346,23 +378,23 @@ export function useRunStream(onDone: () => void) {
     setLines([]);
     setSummary(null);
     let r: Response;
+    setStarting(true);
     try {
       r = await api.startRun(channels);
     } catch (e) {
       setLines([`❌ Il server non risponde: ${(e as Error).message}. Riavvia l'app e riprova.`]);
       return;
+    } finally {
+      setStarting(false);
     }
-    if (r.status === 202) {
-      setRunning(true);
-    } else if (r.status === 409) {
-      setRunning(true);
-      setLines(['⚠️ Una ricerca era già in corso: mi aggancio a quella.']);
-    } else {
+    if (r.status !== 202) {
       // Un codice HTTP non dice niente a chi legge: si dice cosa fare.
-      const body = await r.json().catch(() => ({})) as { error?: string };
-      setLines([`❌ ${body.error ?? 'La ricerca non è partita. Riprova; se insiste, riavvia l’app.'}`]);
+      const body = await r.json().catch(() => ({})) as { error?: string; runId?: string };
+      setLines([r.status === 409 && body.runId
+        ? '⚠️ Una ricerca era già in corso: mi aggancio a quella.'
+        : `❌ ${body.error ?? 'La ricerca non è partita. Riprova; se insiste, riavvia l’app.'}`]);
     }
   }, []);
 
-  return { lines, running, summary, start };
+  return { lines, running: running || starting, summary, start, synchronized };
 }

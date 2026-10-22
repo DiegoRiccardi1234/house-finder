@@ -41,7 +41,7 @@ test('aggregateHealth: modello vivo con 1 endpoint', () => {
 test('aggregateHealth: modello morto = 0 endpoint', () => {
   const h = aggregateHealth('m', DEAD_0EP);
   assert.equal(h.alive, false);
-  assert.equal(h.uptime5m, 0);
+  assert.equal(h.uptime5m, null);
   assert.equal(h.endpointCount, 0);
 });
 
@@ -62,6 +62,18 @@ test('aggregateHealth: gli endpoint con status!=0 non contano nell uptime ma nel
 test('aggregateHealth: payload sporco/vuoto non lancia', () => {
   assert.equal(aggregateHealth('m', null).alive, false);
   assert.equal(aggregateHealth('m', {}).endpointCount, 0);
+});
+
+test('aggregateHealth: telemetria assente resta null, zero misurato resta zero', () => {
+  const missing = aggregateHealth('m', { data: { endpoints: [{ status: 0, uptime_last_5m: null }] } });
+  assert.equal(missing.alive, true);
+  assert.equal(missing.uptime5m, null);
+  assert.equal(missing.uptime30m, null);
+  const zero = aggregateHealth('m', { data: { endpoints: [{ status: 0, uptime_last_5m: 0, uptime_last_30m: 0 }] } });
+  assert.equal(zero.uptime5m, 0);
+  assert.equal(zero.uptime30m, 0);
+  const measured = aggregateHealth('m', { data: { endpoints: [{ status: 0 }, { status: 0, uptime_last_5m: 98 }] } });
+  assert.equal(measured.uptime5m, 98);
 });
 
 // --- rankHealthy (pura) ---
@@ -92,6 +104,12 @@ test('rankHealthy: soglia uptime esclude i sani troppo bassi', () => {
 test('rankHealthy: tutti noti sotto soglia → nessun candidato', () => {
   const healths = new Map([H('a', true, 50)].map((h) => [h.slug, h])); // sotto soglia, nessun unknown
   assert.deepEqual(rankHealthy(['a'], healths, { minUptime: 90 }), []);
+});
+
+test('rankHealthy: endpoint vivo senza telemetria non supera il gate della soglia', () => {
+  const missing = aggregateHealth('missing', { data: { endpoints: [{ status: 0, uptime_last_5m: null }] } });
+  const healths = new Map([['missing', missing], ['measured', H('measured', true, 89)]]);
+  assert.deepEqual(rankHealthy(['missing', 'measured', 'fetch-failed'], healths), ['fetch-failed']);
 });
 
 test('rankHealthy: nessuna salute nota (rete giù) → ordine invariato', () => {

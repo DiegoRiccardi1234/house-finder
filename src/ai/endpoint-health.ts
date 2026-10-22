@@ -24,10 +24,10 @@ export interface ModelHealth {
   slug: string;
   /** Almeno un endpoint con `status === 0`. */
   alive: boolean;
-  /** Max `uptime_last_5m` tra gli endpoint vivi; 0 anche se assente/null, non uno zero misurato. */
-  uptime5m: number;
-  /** Max `uptime_last_30m` tra gli endpoint vivi; 0 anche se assente/null. */
-  uptime30m: number;
+  /** Max `uptime_last_5m` misurato tra gli endpoint vivi; null se manca la telemetria. */
+  uptime5m: number | null;
+  /** Max `uptime_last_30m` misurato tra gli endpoint vivi; null se manca la telemetria. */
+  uptime30m: number | null;
   /** Max `throughput_last_30m` tra gli endpoint vivi (0 se sconosciuto — spesso null sui free). */
   throughput: number;
   /** Numero totale di endpoint free ritornati (0 = modello morto/deprecato). */
@@ -51,18 +51,23 @@ function num(v: number | null | undefined): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 }
 
+function maxMeasured(values: Array<number | null | undefined>): number | null {
+  const measured = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+  return measured.length ? Math.max(...measured) : null;
+}
+
 /** Pura: aggrega il payload di /endpoints in una salute sintetica. */
 export function aggregateHealth(slug: string, payload: unknown): ModelHealth {
   const eps = (payload as EndpointsPayload)?.data?.endpoints ?? [];
   const live = eps.filter((e) => e?.status === 0);
-  const up5 = live.map((e) => num(e.uptime_last_5m));
-  const up30 = live.map((e) => num(e.uptime_last_30m));
+  const up5 = live.map((e) => e.uptime_last_5m);
+  const up30 = live.map((e) => e.uptime_last_30m);
   const thr = live.map((e) => num(e.throughput_last_30m));
   return {
     slug,
     alive: live.length > 0,
-    uptime5m: up5.length ? Math.max(...up5) : 0,
-    uptime30m: up30.length ? Math.max(...up30) : 0,
+    uptime5m: maxMeasured(up5),
+    uptime30m: maxMeasured(up30),
     throughput: thr.length ? Math.max(...thr) : 0,
     endpointCount: eps.length,
   };
@@ -223,18 +228,18 @@ export function rankHealthy(
     const h = healths.get(c);
     if (!h) {
       unknown.push(c); // salute sconosciuta → non scartare, tieni in coda
-    } else if (h.alive && h.uptime5m >= minUptime) {
+    } else if (h.alive && h.uptime5m != null && h.uptime5m >= minUptime) {
       healthy.push(c);
     }
-    // altrimenti: noto e non-sano → scarta
+    // Noto morto/degradato o senza misura recente: non dichiararlo sano.
   }
 
-  const best = healthy.reduce((m, c) => Math.max(m, healths.get(c)!.uptime5m), 0);
+  const best = healthy.reduce((m, c) => Math.max(m, healths.get(c)!.uptime5m!), 0);
   // Distanza dal migliore, in fasce di ampiezza bandStep (bandStep<=0 → fasce continue = puro uptime).
   const tier = (u: number): number => (bandStep > 0 ? Math.floor((best - u) / bandStep) : best - u);
   healthy.sort((a, b) => {
-    const ta = tier(healths.get(a)!.uptime5m);
-    const tb = tier(healths.get(b)!.uptime5m);
+    const ta = tier(healths.get(a)!.uptime5m!);
+    const tb = tier(healths.get(b)!.uptime5m!);
     if (ta !== tb) return ta - tb; // fascia più vicina al best prima
     return seedIndex.get(a)! - seedIndex.get(b)!; // stessa fascia → preferenza-pool
   });
@@ -269,13 +274,13 @@ export function rankModels(candidates: string[], healths: Map<string, ModelHealt
       unknown.push(c);
       continue;
     }
-    if (!(h.alive && h.uptime5m >= minUptime)) continue; // morto/degradato → scarta
+    if (!(h.alive && h.uptime5m != null && h.uptime5m >= minUptime)) continue;
     const meta = parseModelMeta(c);
     if (meta.sizeB != null && meta.sizeB < minSizeB) continue; // quality-floor: niente toy
     eligible.push(c);
   }
 
-  const best = eligible.reduce((m, c) => Math.max(m, healths.get(c)!.uptime5m), 0);
+  const best = eligible.reduce((m, c) => Math.max(m, healths.get(c)!.uptime5m!), 0);
   const tier = (u: number): number => (bandStep > 0 ? Math.floor((best - u) / bandStep) : best - u);
   const penaltyOf = opts.penaltyOf ?? penaltyScore;
   const key = (s: string): number[] => {
@@ -283,7 +288,7 @@ export function rankModels(candidates: string[], healths: Map<string, ModelHealt
     const meta = parseModelMeta(s);
     return [
       penaltyOf(s), // 1. penalizzati in fondo (empirico > per-nome)
-      tier(h.uptime5m), // 2. salute (fascia)
+      tier(h.uptime5m!), // 2. salute misurata (fascia)
       sizeTier(meta.sizeB), // 3. taglia: sweet-spot 26-40B, giganti in fondo (proxy velocità sul free)
       meta.instruct ? 0 : 1, // 4. instruct/non-reasoning preferito
       meta.free ? 0 : 1, // 5. :free tie-break

@@ -105,6 +105,19 @@ test('looksLikeListing: scarta DOMANDE e VENDITE (anche se citano stanza)', () =
   assert.equal(looksLikeListing('Posso offrirti un monolocale zona centro'), true); // "posso offrire" = offerta
 });
 
+test('looksLikeListing: CTA e ricerca di un inquilino non scartano offerte autentiche', () => {
+  for (const offer of [
+    'Affittasi bilocale arredato in Torino. Per informazioni scrivetemi in privato.',
+    'Affittasi stanza singola, cerco inquilino referenziato. 550 euro al mese',
+    'Affittasi stanza singola, cerco una coinquilina. 550 euro al mese',
+    'Cercasi inquilino per bilocale arredato, 650 euro al mese',
+    'Bilocale in centro, se interessati scrivetemi in privato.',
+  ]) assert.equal(looksLikeListing(offer), true, offer);
+  for (const demand of ['Cerco stanza singola in centro', 'Cercasi appartamento per coppia', 'Sono interessato alla stanza']) {
+    assert.equal(looksLikeListing(demand), false, demand);
+  }
+});
+
 test('isShortTerm: breve/giornaliero vs mensile', () => {
   assert.equal(isShortTerm('Affitto breve, 50€ a notte'), true);
   assert.equal(isShortTerm('Monolocale disponibile solo per affitti brevi'), true);
@@ -161,4 +174,44 @@ test('Facebook: caricamento continuo ha un limite, feed fermo attende almeno 5 s
   clock = 0;
   await settleFacebookContent(page, async () => clock / 500);
   assert.equal(clock, 12_000);
+});
+
+test('Facebook: aggiorna la stessa card idratata e conserva quelle uscite dal DOM', async (t) => {
+  let clock = 0;
+  t.mock.method(Date, 'now', () => clock);
+  t.mock.method(console, 'log', () => {});
+  const fakeContext = (kind: 'market' | 'group'): BrowserContext => {
+    let samples = 0;
+    const href = (id: number, suffix = '') => kind === 'market'
+      ? `https://www.facebook.com/marketplace/item/${id}/${suffix}`
+      : `https://www.facebook.com/groups/1/posts/${id}/${suffix}`;
+    const partial = kind === 'market' ? '' : 'Mario Rossi\nCaricamento';
+    const full = 'Affittasi bilocale arredato 650 euro al mese. Per informazioni scrivetemi in privato.';
+    const page = {
+      goto: async () => {},
+      getByRole: () => ({ first: () => ({ isVisible: async () => false }) }),
+      waitForTimeout: async (ms: number) => { clock += ms; },
+      waitForSelector: async () => {},
+      evaluate: async () => ++samples === 1
+        ? [{ href: href(42), text: partial, img: null }, { href: href(43), text: 'Affittasi monolocale arredato 500 euro', img: null }]
+        : samples === 2
+          ? [{ href: href(42, '?ref=updated'), text: full, img: 'https://example.invalid/42.jpg' }]
+          : samples === 3
+            ? [{ href: href(42), text: 'Bilocale arredato', img: null }]
+            : [{ href: href(42), text: 'Cerco stanza, sono interessato alla stanza. '.repeat(10), img: null }],
+      isClosed: () => false,
+      close: async () => {},
+    } as unknown as Page;
+    return { newPage: async () => page } as unknown as BrowserContext;
+  };
+  const market = await scrapeMarketplace(fakeContext('market'), [{ name: 'Offline', url: 'https://example.invalid/' }], 0);
+  const groups = await scrapeGroups(fakeContext('group'), [{ name: 'Offline', city: 'torino', url: 'https://example.invalid/' }], 0);
+  for (const records of [market, groups]) {
+    assert.equal(records.length, 2);
+    const hydrated = records.find((l) => l.id === '42');
+    assert.match(hydrated?.desc ?? '', /Per informazioni scrivetemi/);
+    assert.equal(hydrated?.price, 650);
+    assert.equal(hydrated?.thumb, 'https://example.invalid/42.jpg');
+    assert.ok(records.some((l) => l.id === '43'), 'preserva la card virtualizzata uscita dal DOM');
+  }
 });

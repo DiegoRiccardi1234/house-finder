@@ -4,11 +4,14 @@ import {
   EmptyCompletionError,
   TruncatedCompletionError,
   InvalidKeyError,
+  InvalidJsonCompletionError,
   classifyFailure,
   firstChoice,
   normalizeFinish,
 } from '../src/ai/providers/errors.js';
 import { createAnthropicProvider } from '../src/ai/providers/anthropic.js';
+import { createCompatProvider } from '../src/ai/providers/openai-compat.js';
+import type { ProviderId } from '../src/ai/providers/types.js';
 
 test('firstChoice: un payload rotto diventa errore classificato, non TypeError', () => {
   assert.throws(() => firstChoice({ choices: null }, 'm'), EmptyCompletionError);
@@ -31,12 +34,37 @@ test('normalizeFinish: le due famiglie dicono il troncamento con parole diverse'
 test('classifyFailure: 5xx e rete NON penalizzano il modello', () => {
   assert.equal(classifyFailure(new TruncatedCompletionError('m')), 'length');
   assert.equal(classifyFailure(new EmptyCompletionError('m')), 'malformed');
+  assert.equal(classifyFailure(new InvalidJsonCompletionError('m')), 'json_fail');
   assert.equal(classifyFailure({ status: 429 }), '429');
   assert.equal(classifyFailure({ status: 403 }), '403');
   assert.equal(classifyFailure({ status: 401 }), null); // è la key, non il modello
   assert.equal(classifyFailure({ status: 500 }), null);
   assert.equal(classifyFailure(new Error('socket hang up')), null);
   assert.equal(classifyFailure(new Error('request timed out')), 'timeout');
+});
+
+test('compat: reasoning off solo per modelli OpenRouter supportati, senza cambiare altri provider o task', async (t) => {
+  const bodies: Record<string, unknown>[] = [];
+  t.mock.method(globalThis, 'fetch', async (_url: string, init: RequestInit) => {
+    bodies.push(JSON.parse(String(init.body)));
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } });
+  });
+  const provider = (id: ProviderId) => createCompatProvider({ id, apiKey: 'offline-key', baseURL: 'https://example.invalid/v1',
+    caps: { json: 'native', vision: true, health: id === 'openrouter' ? 'openrouter' : 'none', timeoutMs: 5000 } });
+  const model = 'google/gemma-4-26b-a4b-it:free';
+  const messages = [{ role: 'user' as const, content: 'JSON' }];
+  for (const supported of [model, 'google/gemma-4-31b-it:free', 'xingchen-agi/xing4.0-29b-a4b:free']) {
+    await provider('openrouter').chat({ model: supported, json: true, reasoning: false, messages });
+    assert.deepEqual(bodies.at(-1)?.reasoning, { enabled: false });
+    assert.deepEqual(bodies.at(-1)?.response_format, { type: 'json_object' });
+  }
+  await provider('openrouter').chat({ model, messages });
+  assert.equal(bodies.at(-1)?.reasoning, undefined, 'task senza preferenza invariato');
+  await provider('openrouter').chat({ model: 'mandatory-reasoning-model', reasoning: false, messages });
+  assert.equal(bodies.at(-1)?.reasoning, undefined, 'non forzare modelli non verificati');
+  await provider('groq').chat({ model, json: true, reasoning: false, messages });
+  assert.equal(bodies.at(-1)?.reasoning, undefined, 'nessun parametro OpenRouter ad altri host');
 });
 
 /** Sostituisce `fetch` per il test e restituisce il body inviato. */

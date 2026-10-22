@@ -1,6 +1,6 @@
 import type { Listing, AiScore, ListingFields } from './types.js';
 import { dedupKey } from './state.js';
-import { writeFileAtomic, readJsonResilient } from './atomic.js';
+import { writeJsonAtomic, readJsonResilient } from './atomic.js';
 import { acquireStoreLock } from './store-lock.js';
 
 export type ListingStatus = 'new' | 'favorite' | 'dismissed' | 'contacted';
@@ -138,6 +138,30 @@ export class ListingStore {
 
   // Serializza i save concorrenti (server + endpoint + run): niente interleaving di syscall.
   private saveChain: Promise<void> = Promise.resolve();
+  private mutationChain: Promise<void> = Promise.resolve();
+  private pendingMutations = 0;
+
+  /** Comprende anche le operazioni accodate: una scansione non deve sorpassarle. */
+  get isMutating(): boolean { return this.pendingMutations > 0; }
+
+  /** Una mutazione API è confermata solo dopo save; gli errori ripristinano RAM prima della prossima. */
+  async mutateAndSave<T>(mutate: () => T): Promise<T> {
+    this.pendingMutations++;
+    const run = this.mutationChain.then(async () => {
+      const checkpoint = this.checkpoint();
+      try {
+        const result = mutate();
+        await this.save();
+        return result;
+      } catch (e) {
+        this.restoreCheckpoint(checkpoint);
+        throw e;
+      }
+    });
+    this.mutationChain = run.then(() => {}, () => {});
+    try { return await run; }
+    finally { this.pendingMutations--; }
+  }
 
   async save(): Promise<void> {
     const run = this.saveChain.then(() => this.writeNow());
@@ -146,6 +170,6 @@ export class ListingStore {
   }
 
   private async writeNow(): Promise<void> {
-    await writeFileAtomic(this.path, JSON.stringify(this.items, null, 2) + '\n');
+    await writeJsonAtomic(this.path, this.items);
   }
 }

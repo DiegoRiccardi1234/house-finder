@@ -73,11 +73,16 @@ export function createUpdateRouter(deps: UpdateDeps): Router {
       detail: ev?.detail ?? null,
       ts: ev?.ts ?? null,
       busy: !terminal && lock !== null && !lock.stale,
+      lockStale: lock?.stale ?? false,
     });
   });
 
   /** Sblocca un aggiornamento rimasto appeso. La usa la UI quando il diario dice `error`. */
   r.delete('/lock', (_req, res) => {
+    const lock = readLock(deps.stateDir);
+    if (lock && !lock.stale) {
+      return res.status(409).json({ error: 'update_in_progress', detail: 'L’aggiornamento è ancora attivo. Attendi che termini prima di riprovare.' });
+    }
     releaseLock(deps.stateDir);
     res.json({ ok: true });
   });

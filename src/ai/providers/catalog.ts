@@ -56,7 +56,7 @@ export const CATALOG: ProviderSpec[] = [
     reasoning: [
       'google/gemma-4-26b-a4b-it:free',
       'google/gemma-4-31b-it:free',
-      'qwen/qwen3.8-27b:free',
+      'xingchen-agi/xing4.0-29b-a4b:free',
     ],
     vision: ['google/gemma-4-26b-a4b-it:free', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'],
   },

@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { checkForUpdate, isNewer, parseVersion, resetCheckCache } from '../src/update/check.js';
 import { APP_VERSION, BUNDLE_ASSET } from '../src/version.js';
+import { downloadAsset } from '../src/update/install.js';
 
 /**
  * I test non toccano la rete: `fetch` viene sostituito. Quello che si verifica qui sono le due
@@ -118,5 +119,94 @@ test('GitHub muto non rompe niente: checked=false e la versione locale resta', a
   } finally {
     globalThis.fetch = original;
     resetCheckCache();
+  }
+});
+
+test('download fermo viene abortito e il file parziale eliminato', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hf-download-stalled-'));
+  const path = join(dir, 'partial.zip');
+  const original = globalThis.fetch;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let progressed!: () => void;
+  const firstProgress = new Promise<void>((resolve) => { progressed = resolve; });
+  globalThis.fetch = (async (_url, init) => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason), { once: true });
+      },
+    });
+    return new Response(stream, { headers: { 'content-length': '100' } });
+  }) as Fetch;
+  try {
+    const check = assert.rejects(downloadAsset({ name: 'x.zip', size: 100, url: 'https://example.invalid/x.zip', digest: null }, path,
+      () => progressed()), /nessun avanzamento/);
+    await firstProgress;
+    t.mock.timers.tick(60_000);
+    await check;
+    await assert.rejects(access(path));
+  } finally {
+    globalThis.fetch = original;
+    t.mock.timers.reset();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('download senza risposta rispetta anche il limite complessivo', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hf-download-deadline-'));
+  const original = globalThis.fetch;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let requested!: () => void;
+  const started = new Promise<void>((resolve) => { requested = resolve; });
+  globalThis.fetch = ((_url, init) => new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    requested();
+  })) as Fetch;
+  try {
+    const check = assert.rejects(downloadAsset({ name: 'x.zip', size: 100, url: 'https://example.invalid/x.zip', digest: null }, join(dir, 'x.zip'),
+      () => {}, { timeoutMs: 1000 }), /troppo lungo/);
+    await started;
+    t.mock.timers.tick(1000);
+    await check;
+  } finally {
+    globalThis.fetch = original;
+    t.mock.timers.reset();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('download con avanzamento rinnova il limite di inattività', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hf-download-progress-'));
+  const path = join(dir, 'complete.zip');
+  const original = globalThis.fetch;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let source!: ReadableStreamDefaultController<Uint8Array>;
+  let signal!: AbortSignal;
+  let notify!: () => void;
+  let progress = new Promise<void>((resolve) => { notify = resolve; });
+  globalThis.fetch = (async (_url, init) => {
+    signal = init!.signal!;
+    return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      source = controller;
+      controller.enqueue(new Uint8Array([1]));
+    } }));
+  }) as Fetch;
+  try {
+    const download = downloadAsset({ name: 'x.zip', size: 3, url: 'https://example.invalid/x.zip', digest: null }, path, () => notify());
+    await progress;
+    for (const byte of [2, 3]) {
+      t.mock.timers.tick(45_000);
+      assert.equal(signal.aborted, false);
+      progress = new Promise<void>((resolve) => { notify = resolve; });
+      source.enqueue(new Uint8Array([byte]));
+      await progress;
+    }
+    source.close();
+    await download;
+    assert.deepEqual([...await readFile(path)], [1, 2, 3]);
+  } finally {
+    globalThis.fetch = original;
+    t.mock.timers.reset();
+    await rm(dir, { recursive: true, force: true });
   }
 });

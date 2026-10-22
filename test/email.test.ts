@@ -131,3 +131,27 @@ test('email: concorrenza limitata a tre HEAD e guasto rete senza esporre URL', a
   assert.deepEqual(results, Array(8).fill(null));
   assert.equal(peak, 3);
 });
+
+test('email: card con titolo generico irrisolta rende incompleta una mail mista', async () => {
+  const calls: string[] = [];
+  const opaque = tracked('generic-unresolved');
+  const html = card('https://www.idealista.it/immobile/60606/')
+    + `<div><a href="${opaque}">Casa in centro</a><span>900 € · 60 m²</span></div>`;
+  const result = await idealistaEmail.resolve!(html, '', { resolve: async (href) => { calls.push(href); return null; } });
+  assert.equal(result.listings.length, 1);
+  assert.equal(result.complete, false);
+  assert.equal(result.unresolved, 1);
+  assert.deepEqual(calls, [opaque]);
+});
+
+test('email: card con immagine senza alt risolta; link di azioni rimangono esclusi', async () => {
+  const opaque = tracked('generic-image');
+  const calls: string[] = [];
+  const html = `<div><a href="${opaque}"><img src="https://example.invalid/house.jpg"></a><span>900 € · 60 m²</span>
+    <a href="${tracked('generic-action')}">Disiscriviti</a>
+    <a href="${tracked('generic-news')}">Leggi le notizie</a></div>`;
+  const result = await idealistaEmail.resolve!(html, '', { resolve: async (href) => { calls.push(href); return 'https://www.idealista.it/immobile/70707/'; } });
+  assert.equal(result.complete, true);
+  assert.equal(result.listings[0].id, '70707');
+  assert.deepEqual(calls, [opaque]);
+});

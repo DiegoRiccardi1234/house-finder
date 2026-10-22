@@ -16,6 +16,14 @@ export class TruncatedCompletionError extends Error {
   }
 }
 
+/** JSON assente o sintatticamente invalido: cambia modello senza ritentare lo stesso output. */
+export class InvalidJsonCompletionError extends Error {
+  constructor(model: string) {
+    super(`[${model}] risposta JSON non valida`);
+    this.name = 'InvalidJsonCompletionError';
+  }
+}
+
 /** Il provider ha rifiutato la key (401/403 sul singolo provider). */
 export class InvalidKeyError extends Error {
   constructor(provider: string) {
@@ -67,6 +75,7 @@ export type PenaltyReason = 'length' | 'empty' | 'malformed' | '429' | '403' | '
 export function classifyFailure(e: unknown): PenaltyReason | null {
   if (e instanceof TruncatedCompletionError) return 'length';
   if (e instanceof EmptyCompletionError) return 'malformed';
+  if (e instanceof InvalidJsonCompletionError) return 'json_fail';
   const status = (e as { status?: number })?.status;
   if (status === 429) return '429';
   if (status === 403) return '403';
