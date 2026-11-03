@@ -30,6 +30,7 @@ export interface ChatRequest {
   /** Preferenza per task JSON; solo gli adapter/modelli compatibili la applicano. */
   reasoning?: boolean;
   maxTokens?: number;
+  signal?: AbortSignal;
 }
 
 export type FinishReason = 'stop' | 'length' | 'filter' | 'unknown';

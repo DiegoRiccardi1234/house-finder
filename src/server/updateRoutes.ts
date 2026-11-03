@@ -3,6 +3,8 @@ import { checkForUpdate, resetCheckCache, type UpdateInfo } from '../update/chec
 import { lastEvent, writeEvent } from '../update/events.js';
 import {
   acquireLock,
+  createLockOwner,
+  clearStaleLock,
   readLock,
   releaseLock,
   startHeartbeat,
@@ -83,7 +85,7 @@ export function createUpdateRouter(deps: UpdateDeps): Router {
     if (lock && !lock.stale) {
       return res.status(409).json({ error: 'update_in_progress', detail: 'L’aggiornamento è ancora attivo. Attendi che termini prima di riprovare.' });
     }
-    releaseLock(deps.stateDir);
+    if (!clearStaleLock(deps.stateDir)) return res.status(409).json({ error: 'update_in_progress' });
     res.json({ ok: true });
   });
 
@@ -119,13 +121,14 @@ export function createUpdateRouter(deps: UpdateDeps): Router {
         lockTtlMs: UPDATE_LOCK_TTL_MS,
       });
     }
-    if (!acquireLock(deps.stateDir, info.latest)) {
+    const lockOwner = createLockOwner();
+    if (!acquireLock(deps.stateDir, info.latest, process.pid, lockOwner)) {
       return res.status(409).json({ error: 'update_in_progress' });
     }
 
     const { root, nodeExe } = installInfo();
     if (!nodeExe) {
-      releaseLock(deps.stateDir);
+      releaseLock(deps.stateDir, lockOwner);
       return res.status(500).json({ error: 'node_exe_missing' });
     }
 
@@ -133,14 +136,19 @@ export function createUpdateRouter(deps: UpdateDeps): Router {
 
     // Da qui in poi il browser non aspetta più: segue da /progress.
     void (async () => {
-      const stopHeartbeat = startHeartbeat(deps.stateDir, info.latest ?? '');
+      const stopHeartbeat = startHeartbeat(deps.stateDir, info.latest ?? '', process.pid, lockOwner);
+      const requireOwner = () => {
+        if (readLock(deps.stateDir)?.owner !== lockOwner) throw new Error('Proprietà aggiornamento persa.');
+      };
       try {
+        requireOwner();
         await cleanDownloads(deps.stateDir);
         const zip = downloadPath(deps.stateDir, info.latest ?? 'nuova');
 
         writeEvent(deps.stateDir, { step: 'download', pct: 5, detail: 'scarico il bundle' });
         let lastPct = 5;
         await downloadAsset(info.asset!, zip, (received, total) => {
+          if (readLock(deps.stateDir)?.owner !== lockOwner) return;
           const pct = total > 0 ? 5 + Math.round((received / total) * 45) : 5;
           if (pct !== lastPct) {
             lastPct = pct;
@@ -152,11 +160,13 @@ export function createUpdateRouter(deps: UpdateDeps): Router {
           }
         });
 
+        requireOwner();
         writeEvent(deps.stateDir, { step: 'verify', pct: 55, detail: 'verifico il download' });
         await verifyDownload(zip, info.asset!);
 
         writeEvent(deps.stateDir, { step: 'verify', pct: 65, detail: 'preparo l\'aggiornatore' });
         const tempDir = await stageUpdater(root, nodeExe);
+        requireOwner();
 
         await launchUpdater({
           installRoot: root,
@@ -164,6 +174,7 @@ export function createUpdateRouter(deps: UpdateDeps): Router {
           tempDir,
           stateDir: deps.stateDir,
           version: info.latest ?? '',
+          lockOwner,
           // Chi è partito con l'icona nella tray deve ritrovarsela dopo il riavvio: `--open` no,
           // perché la scheda del browser è già aperta e si sta ricaricando da sola.
           relaunchArgs: trayRequested() ? ['--tray'] : [],
@@ -175,9 +186,10 @@ export function createUpdateRouter(deps: UpdateDeps): Router {
         setTimeout(() => deps.onShutdown(), 600);
       } catch (e) {
         stopHeartbeat();
+        if (readLock(deps.stateDir)?.owner !== lockOwner) return;
         const msg = e instanceof Error ? e.message : String(e);
         writeEvent(deps.stateDir, { step: 'error', pct: 0, detail: msg });
-        releaseLock(deps.stateDir);
+        releaseLock(deps.stateDir, lockOwner);
       }
     })();
   });

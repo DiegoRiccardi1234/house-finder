@@ -4,7 +4,8 @@ import { dedupKey } from '../core/state.js';
 import { loadCriteria } from '../config/criteria.js';
 import { recordPenalty, beginScoringTask, endScoringTask } from './endpoint-health.js';
 import { buildChainForTask } from './failover.js';
-import { configuredProviders, markKeyInvalid } from './credentials.js';
+import { markKeyInvalid } from './credentials.js';
+import { hasExplicitRoute, routeConfigured, taskChat } from './task-routing.js';
 import { getProvider } from './providers/registry.js';
 import { classifyFailure, InvalidKeyError, InvalidJsonCompletionError } from './providers/errors.js';
 import { refKey, type ModelRef } from './providers/types.js';
@@ -71,7 +72,7 @@ const SYSTEM = [
 
 /** Almeno un provider con credenziali: il nome resta, lo usano server e pipeline. */
 export function configured(): boolean {
-  return configuredProviders().length > 0;
+  return routeConfigured('scoring');
 }
 
 const CHUNK = 10; // annunci per chiamata
@@ -260,6 +261,20 @@ export async function scoreBatch(
     for (let i = 0; i < listings.length; i += CHUNK) {
       const idx = Math.floor(i / CHUNK) + 1;
       const chunk = listings.slice(i, i + CHUNK);
+      if (hasExplicitRoute('scoring')) {
+        log(`[ai] valuto gruppo ${idx}/${nChunks} (${chunk.length} annunci) — connessione del task`);
+        try {
+          const reply = await taskChat('scoring', { model: '', json: true,
+            schema: z.object({ scores: z.array(z.unknown()) }),
+            messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: buildPrompt(chunk) }] });
+          const results = parseScoreResponse(reply.text, new Set(chunk.map(dedupKey)));
+          for (const [key, value] of results) out.set(key, value);
+          log(`[ai] gruppo ${idx}/${nChunks}: ${results.size}/${chunk.length} valutati`);
+        } catch {
+          log(`[ai] gruppo ${idx}/${nChunks}: connessione non disponibile o risposta non valida; annunci lasciati da valutare`);
+        }
+        continue;
+      }
       // Catena ricalcolata per chunk: riflette le penalità accumulate (health via cache, no rifetch).
       const chain = await buildChainForTask('reasoning');
       const head = chain[0];

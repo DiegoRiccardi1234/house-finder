@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-03
+
+### Added
+
+- Local Codex account runtime, optional Claude Code support and explicit per-task connections
+  for listing scores, photos, search assistance, neighbourhoods and the new listing chat.
+- Local chat history with a preview of selected listing context, cancellation and no automatic actions.
+- Authenticated House Finder MCP tools over STDIO and local HTTP, sharing the application's
+  archive owner. Profile and scan proposals require confirmation in the browser.
+- Connection diagnostics and explicit synthetic tests. API credentials and legacy routing remain
+  available; selecting a local account does not silently fall back to API providers.
+
+### Fixed
+
+- Update locks are acquired exclusively and heartbeats, file replacement and release verify
+  ownership, preventing a previous updater from interfering with its successor.
+- Windows launcher and tray share a seven-size icon. Release builds fail if the executable
+  cannot be compiled, instead of silently shipping an incomplete launcher.
+- Updated schema validation dependency to resolve the constrained-collection memory advisory.
+
+### Compatibility
+
+- Existing JSON archives, installation layout, personal configuration and release asset name
+  are preserved. Claude live access requires a separate eligible account; Hermes support uses
+  an already configured OpenAI-compatible endpoint or MCP client, not a bundled native runtime.
+
 ## [1.7.1] - 2026-10-02
 
 ### Fixed

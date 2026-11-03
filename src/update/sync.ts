@@ -31,6 +31,8 @@ export interface SyncOptions {
   currentExe?: string | null;
   sleep?: (ms: number) => Promise<void>;
   onFile?: (rel: string) => void;
+  /** Abort before touching a file if the updater lost its ownership lease. */
+  beforeFile?: (rel: string) => void;
   /**
    * La copia vera e propria, iniettabile.
    *
@@ -202,6 +204,7 @@ export async function syncInstallDir(
       result.skipped.push(rel);
       continue;
     }
+    opts.beforeFile?.(rel);
     await mkdir(dirname(target), { recursive: true });
     await copyWithRetry(file, target, delays, sleep, copy);
     result.written++;

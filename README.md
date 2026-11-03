@@ -2,7 +2,8 @@
 
 > Multi-channel rental listing monitor: it collects flats from portals, classifieds and Facebook,
 > lets an **LLM score each one against your own criteria**, and shows the result in a local dashboard
-> where you mark favourites, contacted and discarded. Local-first — your data never leaves your machine.
+> where you mark favourites, contacted and discarded. Archives and settings stay local; AI requests
+> send the selected listing context to the account or provider you explicitly configure.
 
 [![CI](https://github.com/DiegoRiccardi1234/house-finder/actions/workflows/tests.yml/badge.svg)](https://github.com/DiegoRiccardi1234/house-finder/actions/workflows/tests.yml)
 ![Node](https://img.shields.io/badge/node-20%20%7C%2022-339933?logo=node.js&logoColor=white)
@@ -32,6 +33,23 @@
 ---
 
 ## 🇬🇧 English
+
+### Local accounts, chat and MCP (1.8)
+
+Open **Config → Connessioni AI** to add Codex CLI, optional Claude Code or an API connection.
+Use **Task** to assign listing scores, photos, search assistance, neighbourhood suggestions and chat
+separately. An explicit route uses only its selected connection and listed fallbacks; stored API
+keys do not become automatic fallbacks. Native clients are optional and use your own eligible
+account; House Finder does not include a subscription or install those clients for you.
+
+**Diagnostica** checks installation/account/model availability without inference. **Prova sintetica**
+is explicit and consumes the selected account/provider's quota. Claude support is optional; Hermes
+uses an already configured OpenAI-compatible endpoint or acts as an MCP client, not a bundled runtime.
+
+The **Chat** tab compares selected listings and search criteria without changing the archive or
+contacting anyone. It previews the context sent to the chosen connection and keeps a deletable
+local history. MCP exposes the same archive through the running application, with a private
+capability and browser confirmation for profile/scan proposals. See [MCP setup and tools](docs/mcp.md).
 
 Looking for a flat means reading the same listings over and over across five different sites, most of
 them irrelevant. House Finder collects them for you, hands every listing to an LLM together with your
@@ -64,7 +82,8 @@ visit?" verdict** — plus a dashboard to track what you already contacted or di
   per-channel isolation with incremental saves, store mutex.
 - **Local web dashboard** — React + Tailwind: filters, live run log over SSE, favourite / contacted /
   discarded, in-app config editor, one-click archive cleanup.
-- **Tested** — 135 tests (`node:test`), `tsc --strict` on both the server and the UI, CI on Node 20 and 22.
+- **Tested** — offline regression tests (`node:test`), strict TypeScript for server/UI and CI on
+  Windows/Linux with Node 22 and 24. Live account/source availability is a separate check.
 
 ### 📡 Channels
 

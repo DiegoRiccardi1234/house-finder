@@ -17,6 +17,7 @@ import {
 import { buildChainForTask, modelsForTask } from '../ai/failover.js';
 import { penaltyScore } from '../ai/endpoint-health.js';
 import { refKey } from '../ai/providers/types.js';
+import { connectionConfig, hasExplicitRoute, routeConfigured } from '../ai/connections.js';
 
 /**
  * API dei provider AI.
@@ -185,6 +186,17 @@ export function createAiRouter(): Router {
 
   /** Salute e catena scelta. Non fa inferenza: non consuma quota. */
   r.get('/health', async (_req, res) => {
+    if (hasExplicitRoute('scoring')) {
+      const config = connectionConfig();
+      const route = config.tasks.scoring!;
+      const connection = config.connections.find((c) => c.id === route.connectionId);
+      return res.json({ configured: routeConfigured('scoring'), provider: connection?.label ?? null,
+        model: connection?.model || 'Predefinito del client', probe: 'none',
+        chain: [route.connectionId, ...route.fallbackIds].map((id) => {
+          const c = config.connections.find((row) => row.id === id);
+          return { provider: c?.label ?? id, model: c?.model || 'Predefinito del client', uptime5m: null, penalty: 0, state: 'unknown' };
+        }), reason: 'Routing esplicito. Disponibilità e account si verificano in Config → Connessioni AI → Diagnostica.' });
+    }
     const provider = primaryProvider();
     if (!isConfigured(provider)) {
       return res.json({

@@ -20,7 +20,7 @@ import { join, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isWritable, isDir, syncInstallDir, snapshotInstall, restoreInstall,
   validateBundleTree, validateArchiveEntries, type InstallSnapshot } from '../src/update/sync.js';
-import { releaseLock, startHeartbeat } from '../src/update/lock.js';
+import { acquireLock, createLockOwner, readLock, releaseLock, startHeartbeat } from '../src/update/lock.js';
 import { writeEvent } from '../src/update/events.js';
 
 /** Quanto si aspetta che il processo padre esca prima di rinunciare. */
@@ -39,6 +39,7 @@ const UNLOCK_TIMEOUT_MS = 30_000;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export interface Args {
+  lockOwner?: string;
   root: string;
   zip: string;
   state: string;
@@ -64,7 +65,9 @@ export function parseArgs(argv: string[]): Args | null {
   const parentPid = Number(get('parent-pid') ?? '0');
   const version = get('version') ?? '';
   if (!root || !zip || !state || !temp || !Number.isInteger(parentPid) || parentPid <= 0 || !version) return null;
-  return { root, zip, state, temp, parentPid, version, relaunch };
+  const lockOwner = get('lock-owner');
+  if (lockOwner && !/^[a-zA-Z0-9-]{8,100}$/.test(lockOwner)) return null;
+  return { root, zip, state, temp, parentPid, version, relaunch, lockOwner };
 }
 
 /**
@@ -268,7 +271,13 @@ export async function runUpdate(args: Args, overrides: Partial<UpdateRuntime> = 
   const runtime: UpdateRuntime = { waitParent: attendiPadre, pause: sleep, waitUnlocked: attendiSbloccoNodeExe,
     extract: estrai, restart: riavvia, confirm: waitForVersion, stop: stopRelaunched,
     sync: syncInstallDir, cleanup: autopulizia, ...overrides };
-  const stopHeartbeat = startHeartbeat(args.state, args.version);
+  const lockOwner = args.lockOwner ?? createLockOwner();
+  if (args.lockOwner) {
+    if (readLock(args.state)?.owner !== lockOwner) return 1;
+  } else if (!acquireLock(args.state, args.version, process.pid, lockOwner)) return 1;
+  const stopHeartbeat = startHeartbeat(args.state, args.version, process.pid, lockOwner);
+  const ownsLock = (): boolean => readLock(args.state)?.owner === lockOwner;
+  const requireOwner = (): void => { if (!ownsLock()) throw new Error('Proprietà aggiornamento persa: operazione interrotta.'); };
   const estratti = join(args.temp, 'estratti');
   let parentExited = false;
   let snapshot: InstallSnapshot | null = null;
@@ -277,10 +286,12 @@ export async function runUpdate(args: Args, overrides: Partial<UpdateRuntime> = 
   let keepBackup = false;
   let previousVersion: string | undefined;
   try {
+    requireOwner();
     writeEvent(args.state, { step: 'replace', pct: 70, detail: 'attendo la chiusura dell\'app' });
     parentExited = await runtime.waitParent(args.parentPid);
     if (!parentExited) throw new Error('L\'app non si è chiusa entro il timeout: aggiornamento annullato.');
     await runtime.pause(RESPIRO_MS);
+    requireOwner();
     await runtime.waitUnlocked(args.root);
     await mkdir(estratti, { recursive: true });
     runtime.extract(args.zip, estratti);
@@ -290,17 +301,22 @@ export async function runUpdate(args: Args, overrides: Partial<UpdateRuntime> = 
       .match(/export\s+const\s+APP_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1];
     if (!previousVersion) throw new Error('Non riconosco la versione installata: aggiornamento annullato.');
     snapshot = await snapshotInstall(source, args.root, join(args.temp, 'backup'));
+    requireOwner();
     writeEvent(args.state, { step: 'replace', pct: 78, detail: 'sostituisco i file' });
     replacementStarted = true;
-    const result = await runtime.sync(source, args.root, { currentExe: process.execPath });
+    const result = await runtime.sync(source, args.root, { currentExe: process.execPath, beforeFile: requireOwner });
+    requireOwner();
     writeEvent(args.state, { step: 'replace', pct: 90, detail: `${result.written} file aggiornati` });
     writeEvent(args.state, { step: 'restart', pct: 95, detail: 'riavvio e verifico la versione' });
     relaunched = await runtime.restart(args.root, args.relaunch);
     await runtime.confirm(args.version, relaunched);
+    requireOwner();
     writeEvent(args.state, { step: 'done', pct: 100, detail: `aggiornato alla ${args.version}` });
     await rm(args.zip, { force: true }).catch(() => {});
     return 0;
   } catch (e) {
+    // A new owner may already be updating. Never overwrite its files or progress in rollback.
+    if (!ownsLock()) { keepBackup = replacementStarted; return 1; }
     let detail = e instanceof Error ? e.message : String(e);
     try {
       if (relaunched) await runtime.stop(relaunched);
@@ -321,7 +337,7 @@ export async function runUpdate(args: Args, overrides: Partial<UpdateRuntime> = 
     return 1;
   } finally {
     stopHeartbeat();
-    releaseLock(args.state);
+    releaseLock(args.state, lockOwner);
     if (!keepBackup) runtime.cleanup(args.temp);
   }
 }

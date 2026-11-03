@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { AiProvidersPanel } from './AiProvidersPanel';
-import { ModelPicker } from './ModelPicker';
+import { ConnectionsPanel } from './ConnectionsPanel';
 import { UpdatePanel } from './UpdatePanel';
 import { BrowsersPanel } from './BrowsersPanel';
 import { MailPanel } from './MailPanel';
@@ -29,7 +28,7 @@ const TABS = [
   { id: 'search', label: 'La tua ricerca' },
   { id: 'email', label: 'Email' },
   { id: 'facebook', label: 'Facebook' },
-  { id: 'providers', label: 'Provider AI' },
+  { id: 'providers', label: 'Connessioni AI' },
   { id: 'app', label: 'App' },
 ] as const;
 
@@ -129,8 +128,7 @@ export function ConfigView({
       {viste.has('providers') && (
         <div hidden={tab !== 'providers'} className="flex flex-col gap-4">
           {/* La key prima del modello: senza, la scelta del modello è solo un avviso. */}
-          <AiProvidersPanel onChanged={onProvidersChanged} />
-          <ModelPicker onChanged={onProvidersChanged} />
+          <ConnectionsPanel onChanged={onProvidersChanged} />
         </div>
       )}
 

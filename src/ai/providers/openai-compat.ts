@@ -52,7 +52,7 @@ export function createCompatProvider(cfg: {
       ...(cfg.id === 'openrouter' && req.reasoning != null && OPTIONAL_REASONING.has(req.model.replace(/:free$/, ''))
         ? { reasoning: { enabled: req.reasoning } } : {}),
       messages: toOpenAiMessages(req.messages),
-    });
+    }, { signal: req.signal });
   }
 
   return {

@@ -2,7 +2,7 @@ import type { Listing } from '../core/types.js';
 import { dedupKey } from '../core/state.js';
 import { readThumbDataUri } from '../core/thumbs.js';
 import { buildChainForTask } from './failover.js';
-import { configuredProviders } from './credentials.js';
+import { hasExplicitRoute, routeConfigured, taskChat } from './task-routing.js';
 import { getProvider } from './providers/registry.js';
 import type { ModelRef } from './providers/types.js';
 
@@ -21,7 +21,7 @@ const MAX_IMAGES = 30; // tetto per run (costo/tempo: ~4s/immagine sui free)
 const CONCURRENCY = 3;
 
 export function visionConfigured(): boolean {
-  return configuredProviders().length > 0;
+  return routeConfigured('vision');
 }
 
 const PROMPT =
@@ -29,10 +29,10 @@ const PROMPT =
   'questa foto di un annuncio in affitto: stato/ristrutturazione, luminosità, arredamento, qualità percepita. ' +
   'Solo la descrizione, niente preamboli.';
 
-async function describeOne(url: string, ref: ModelRef): Promise<string | null> {
+async function describeOne(url: string, ref?: ModelRef): Promise<string | null> {
   try {
-    const reply = await getProvider(ref.provider).chat({
-      model: ref.model,
+    const request = {
+      model: ref?.model ?? '',
       messages: [
         {
           role: 'user',
@@ -42,7 +42,9 @@ async function describeOne(url: string, ref: ModelRef): Promise<string | null> {
           ],
         },
       ],
-    });
+    };
+    const reply = ref ? await getProvider(ref.provider).chat(request as import('./providers/types.js').ChatRequest)
+      : await taskChat('vision', request as import('./providers/types.js').ChatRequest);
     return reply.text.trim() || null;
   } catch {
     return null; // immagine non raggiungibile / modello giù → nessuna descrizione
@@ -80,13 +82,14 @@ export async function describePhotos(
   const withPhoto = listings.filter((l) => l.thumb || cached.has(dedupKey(l))).slice(0, MAX_IMAGES);
   if (!withPhoto.length) return out;
 
-  const chain = await buildChainForTask('vision');
+  const explicit = hasExplicitRoute('vision');
+  const chain = explicit ? [] : await buildChainForTask('vision');
   const ref = chain[0];
-  if (!ref) {
+  if (!ref && !explicit) {
     log('[vision] nessun modello vision disponibile sui provider configurati — salto');
     return out;
   }
-  log(`[vision] descrivo ${withPhoto.length} foto — modello ${ref.provider}/${ref.model}`);
+  log(`[vision] descrivo ${withPhoto.length} foto — ${ref ? `modello ${ref.provider}/${ref.model}` : 'connessione del task'}`);
   for (let i = 0; i < withPhoto.length; i += CONCURRENCY) {
     const chunk = withPhoto.slice(i, i + CONCURRENCY);
     const results = await Promise.all(

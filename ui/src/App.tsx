@@ -10,13 +10,15 @@ import type { ListingFilters } from './types';
 import { Alert } from './ui/Alert';
 import { Kicker } from './ui/Kicker';
 import { Tabs } from './ui/Tabs';
+import { ChatPanel } from './components/ChatPanel';
 
-type View = 'dashboard' | 'run' | 'profile' | 'config';
+type View = 'dashboard' | 'run' | 'profile' | 'config' | 'chat';
 
 const NAV = [
   { id: 'dashboard', label: 'Annunci' },
   { id: 'run', label: 'Cerca' },
   { id: 'profile', label: 'Profilo' },
+  { id: 'chat', label: 'Chat' },
   { id: 'config', label: 'Config' },
 ] as const;
 
@@ -139,7 +141,7 @@ export default function App() {
               onClick={() => apriConfig('providers')}
               className="rounded-[var(--radius-btn)] bg-warn-soft px-2.5 py-1 text-xs text-warn hover:underline"
             >
-              Nessun provider AI configurato
+              Valutazione AI non configurata
             </button>
           )}
           {meta && meta.aiConfigured && meta.profileConfigured && !meta.imapConfigured && (
@@ -161,6 +163,7 @@ export default function App() {
       )}
 
       <main>
+        {visited.has('chat') && <div hidden={view !== 'chat'}><ChatPanel filters={filters} refreshToken={refreshToken} onConfigure={() => apriConfig('providers')} /></div>}
         <div hidden={view !== 'dashboard'}>
           <Dashboard
             filters={filters}

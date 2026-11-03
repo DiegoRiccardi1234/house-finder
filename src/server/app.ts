@@ -26,6 +26,13 @@ import { mailConfigured } from '../config/mail.js';
 import { profileConfigured, invalidateProfile } from '../config/profile.js';
 import { APP_VERSION } from '../version.js';
 import { readLock as readUpdateLock } from '../update/lock.js';
+import { createAgentRouter } from './agentRoutes.js';
+import { AgentError } from '../agent/service.js';
+import { createConnectionRouter } from './connectionRoutes.js';
+import { createChatRouter } from './chatRoutes.js';
+import type { ChatService } from '../chat/service.js';
+import { closeRuntimes } from '../ai/runtime.js';
+import { connectionConfig, hasExplicitRoute } from '../ai/connections.js';
 
 type RunPipelineFn = (
   channels: ChannelId[],
@@ -34,6 +41,8 @@ type RunPipelineFn = (
 
 export interface AppDeps {
   store: ListingStore;
+  /** Synthetic-only browser/integration fixtures can replace the chat completion. */
+  chatService?: ChatService;
   /** Override isolato per le prove del primo avvio. */
   profileConfigured?: () => boolean;
   /** Override per i test (default: la pipeline reale). */
@@ -139,9 +148,35 @@ export function createApp(deps: AppDeps): Express {
     deps.onShutdown ?? (() => console.warn('[server] spegnimento richiesto ma non collegato'));
 
   const app = express();
-  app.locals.isRunRunning = () => runManager.isRunning || store.isMutating;
   app.locals.isArchiveBusy = () => store.isMutating;
   app.use(express.json());
+  const stateDir = deps.stateDir ?? 'state';
+  const updateBusy = (): boolean => { const lock = readUpdateLock(stateDir); return Boolean(lock && !lock.stale); };
+  const agent = createAgentRouter({ store, stateDir,
+    isBusy: () => runManager.isRunning || store.isMutating || updateBusy(),
+    getRunStatus: () => runManager.status(),
+    startScan: (channels) => {
+      if (runManager.isRunning || store.isMutating || updateBusy()) throw new AgentError('app_busy', 409);
+      if (!hasProfile()) throw new AgentError('profile_not_configured', 409);
+      if (channels.includes('email') && !imapConfigured()) throw new AgentError('mail_not_configured', 409);
+      if (channels.some((c) => c !== 'email') && !browsersInstalled()) throw new AgentError('browser_missing', 409);
+      if (channels.includes('facebook') && !existsSync(FB_STATE_PATH)) throw new AgentError('facebook_not_configured', 409);
+      return runManager.start(channels, (log) => runPipeline(channels, { store, log, score: false }));
+    },
+  });
+  const chat = createChatRouter(store, stateDir, deps.chatService);
+  app.locals.isRunRunning = () => runManager.isRunning || store.isMutating || agent.service.isApplying || chat.service.busy;
+  app.locals.closeAi = () => { chat.service.close(); closeRuntimes(); };
+  app.use('/api/agent', agent.router);
+  app.use('/mcp', agent.mcpHandler);
+  app.use('/api/chat', agent.requireUi, chat.router);
+  app.use('/api/ai/connections', agent.requireUi, (req, res, next) => {
+    if (req.method === 'PUT' && app.locals.isRunRunning()) {
+      res.status(409).json({ error: 'app_busy', detail: 'Attendi la fine delle operazioni AI o della scansione prima di modificare le connessioni.' }); return;
+    }
+    res.set('Cache-Control', 'no-store'); next();
+  });
+  app.use('/api', createConnectionRouter());
 
   // --- Meta: cosa è disponibile (per abilitare canali/pulsanti nella UI) ---
   app.get('/api/meta', (_req, res) => {
@@ -165,7 +200,8 @@ export function createApp(deps: AppDeps): Express {
       // accompagnarcelo invece di presentargli i criteri di qualcun altro.
       profileConfigured: configured,
       aiConfigured: aiConfigured(),
-      aiProvider: primaryProvider(),
+      aiProvider: hasExplicitRoute('scoring') ? connectionConfig().connections.find((c) =>
+        c.id === connectionConfig().tasks.scoring?.connectionId)?.label ?? 'Connessione AI' : primaryProvider(),
       imapConfigured: imap,
       fbSessionExists,
       browsersInstalled: browser,
@@ -287,7 +323,7 @@ export function createApp(deps: AppDeps): Express {
 
   // Blocca le mutazioni pesanti mentre una run sta scrivendo lo store (evita race con save()).
   const rejectIfRunning = (res: Response): boolean => {
-    if (runManager.isRunning) {
+    if (runManager.isRunning || agent.service.isApplying) {
       res.status(409).json({ error: 'run in corso: riprova a fine run' });
       return true;
     }
@@ -395,7 +431,7 @@ export function createApp(deps: AppDeps): Express {
   app.post('/api/runs', (req, res) => {
     const parsed = RunBodySchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'channels non valido' });
-    if (store.isMutating) {
+    if (store.isMutating || agent.service.isApplying) {
       return res.status(409).json({ error: 'Salvataggio archivio in corso: riprova al termine.', code: 'ARCHIVE_BUSY' });
     }
     const updateLock = readUpdateLock(deps.stateDir ?? 'state');

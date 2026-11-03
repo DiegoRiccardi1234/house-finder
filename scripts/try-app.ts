@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import type { ServerResponse } from 'node:http';
 import { chromium, type Page } from 'playwright';
 import type { RunSummary } from '../src/core/pipeline.js';
+import { ChatService } from '../src/chat/service.js';
 
 async function main(): Promise<void> {
   const temp = await mkdtemp(join(tmpdir(), 'hf-app-smoke-'));
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
   let rejectRun: ((reason: Error) => void) | undefined;
   let runCount = 0;
   const streams = new Set<ServerResponse>();
-  const app = createApp({ store, stateDir,
+  const app = createApp({ store, stateDir, chatService: new ChatService(store, stateDir, async () => ({ text: 'Confronto sintetico: il bilocale fixture rispetta il budget. Verifica le spese prima della visita.', finishReason: 'stop' })),
     checkUpdate: async () => ({ current: APP_VERSION, latest: null, updateAvailable: false,
       releaseUrl: null, notes: '', asset: null, checked: true, frozen: false, detail: null }),
     runPipeline: async (channels, { log }) => {
@@ -222,6 +223,31 @@ async function main(): Promise<void> {
     await wait(async () => clearedStale === 1, 'sblocco solo del lock stale');
     await updatePage.close();
     checks.push('Updater UI: oltre cinque minuti resta occupato; sblocco disponibile solo con lock stale');
+    await nav(page, 'Config');
+    await nav(page, 'Connessioni AI');
+    await page.getByRole('button', { name: 'Aggiungi connessione', exact: true }).click();
+    await page.getByLabel('Nome', { exact: true }).fill('Codex fixture');
+    await page.getByLabel('Modello', { exact: true }).fill('fixture-model');
+    await page.getByRole('button', { name: 'Salva connessioni e task', exact: true }).click();
+    await visible(page, 'Connessioni e task salvati.');
+    await page.getByRole('tab', { name: 'Task', exact: true }).click();
+    await page.getByLabel('Chat sugli annunci', { exact: true }).selectOption({ label: 'Codex fixture' });
+    await page.getByRole('button', { name: 'Salva connessioni e task', exact: true }).click();
+    await visible(page, 'Connessioni e task salvati.');
+    await nav(page, 'Chat');
+    await page.getByRole('checkbox', { name: /Bilocale fixture Torino/ }).check();
+    await page.getByLabel('La tua domanda', { exact: true }).fill('Confronta questo annuncio con il budget.');
+    await page.getByRole('button', { name: 'Invia domanda', exact: true }).click();
+    await visible(page, /Confronto sintetico: il bilocale fixture/);
+    await page.screenshot({ path: join(temp, 'chat-desktop.png'), fullPage: true, animations: 'disabled' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'chat senza overflow mobile');
+    await page.screenshot({ path: join(temp, 'chat-mobile.png'), fullPage: true, animations: 'disabled' });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.reload();
+    await nav(page, 'Chat');
+    await visible(page, /Confronto sintetico: il bilocale fixture/);
+    checks.push('Connessioni e routing salvati; chat con contesto selezionato e cronologia persistente');
     await nav(page, 'Annunci');
     await page.screenshot({ path: join(temp, 'desktop.png'), fullPage: true, animations: 'disabled' });
     await page.setViewportSize({ width: 390, height: 844 });

@@ -25,10 +25,12 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readLock } from '../src/update/lock.js';
+import { createHash } from 'node:crypto';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const ZIP = join(ROOT, 'dist', 'HouseFinder-windows.zip');
@@ -131,6 +133,7 @@ async function attendiVersione(attesa: string | null, timeoutMs: number): Promis
 
 async function main(): Promise<void> {
   const reuse = process.argv.includes('--reuse');
+  const exactTarget = process.argv.includes('--exact-target');
 
   if (!reuse || !(await esiste(ZIP))) {
     passo('Costruisco il bundle (qualche minuto: npm ci + download di node.exe)');
@@ -139,7 +142,7 @@ async function main(): Promise<void> {
     passo('Riuso il bundle già in dist/');
   }
 
-  const base = await mkdtemp(join(tmpdir(), 'hf-e2e-'));
+  const base = await mkdtemp(join(tmpdir(), 'hf-e2e space-'));
   const estratto = join(base, 'installato');
   const nuovo = join(base, 'nuovo');
   const zipNuovo = join(base, 'HouseFinder-windows.zip');
@@ -152,6 +155,9 @@ async function main(): Promise<void> {
   const tagDa = iDa >= 0 ? process.argv[iDa + 1] : null;
   const iLocal = process.argv.indexOf('--from-zip');
   const localZip = iLocal >= 0 ? process.argv[iLocal + 1] : null;
+  const iInstall = process.argv.indexOf('--from-install');
+  const sourceInstall = iInstall >= 0 ? process.argv[iInstall + 1] : null;
+  if (sourceInstall && localZip) throw new Error('Scegli --from-install oppure --from-zip.');
   let zipInstallato = ZIP;
   if (localZip) {
     await stat(localZip);
@@ -174,7 +180,24 @@ async function main(): Promise<void> {
   }
 
   passo('Installo la versione di partenza');
-  estrai(zipInstallato, estratto);
+  if (sourceInstall) {
+    // Preserve the actual legacy executables/modules without copying the user's state or keys.
+    // Example data is replaced by public fixtures, never read from the personal installation.
+    const originalApp = resolve(sourceInstall, 'app');
+    await cp(originalApp, join(estratto, 'app'), { recursive: true, filter: (source) => {
+      const rel = relative(originalApp, source).replace(/\\/g, '/');
+      return !rel.startsWith('.env') && !['data', 'state'].some((item) => rel === item || rel.startsWith(`${item}/`));
+    } });
+    for (const name of ['HouseFinder.exe', 'HouseFinder.vbs', 'LEGGIMI.txt']) {
+      if (await esiste(join(sourceInstall, name))) await cp(join(sourceInstall, name), join(estratto, name));
+    }
+    await mkdir(join(estratto, 'app', 'data'), { recursive: true });
+    for (const name of ['criteria.md', 'searches.json', 'facebook.json', 'zones']) {
+      await cp(join(ROOT, 'data', name), join(estratto, 'app', 'data', name), { recursive: true });
+    }
+    await cp(join(ROOT, '.env.example'), join(estratto, 'app', '.env.example'));
+    console.log('   runtime legacy originale; solo dati/config fixture sostituiti');
+  } else estrai(zipInstallato, estratto);
   // L'installazione è la cartella DENTRO lo zip, non quella in cui si è estratto: è la stessa
   // cosa che fa una persona che apre l'archivio e trascina fuori `HouseFinder`.
   const install = await radiceEstratta(estratto);
@@ -183,7 +206,7 @@ async function main(): Promise<void> {
   // I file che l'aggiornamento NON deve toccare.
   await mkdir(join(install, 'state'), { recursive: true });
   await mkdir(join(install, 'app', 'data', 'local'), { recursive: true });
-  await writeFile(join(install, '.env'), `SEGRETO=${SENTINELLA}\n`);
+  await writeFile(join(install, '.env'), `SEGRETO=${SENTINELLA}\nPORT=${PORTA_APP}\n`);
   await writeFile(join(install, 'app', 'data', 'local', 'criteria.md'), SENTINELLA);
   // Lo store è un oggetto di record; la sentinella vive in un campo innocuo di un record valido.
   await writeFile(join(install, 'state', 'listings.json'), JSON.stringify({
@@ -192,20 +215,40 @@ async function main(): Promise<void> {
       visionSummary: null, photos: [], channel: 'subito', firstSeen: '2026-01-01T00:00:00.000Z',
       lastSeen: '2026-01-01T00:00:00.000Z', status: 'favorite', notified: true },
   }));
-  const preservedFiles = ['state/listings.json', '.env', 'app/data/local/criteria.md'];
+  const additionalSentinels: Record<string, string> = {
+    'app/data/local/ai-connections.json': JSON.stringify({ version: 1, connections: [
+      { id: 'fixture', label: 'Fixture updater', kind: 'codex', enabled: false, vision: false },
+    ], tasks: { scoring: { connectionId: 'fixture', fallbackIds: [] } } }),
+    'app/data/local/ai-connection-secrets.json': JSON.stringify({ keys: { fixture: SENTINELLA } }),
+    'state/agent/preserved.fixture.json': JSON.stringify({ token: SENTINELLA }),
+    'state/chat/preserved.fixture.json': JSON.stringify({ messages: [SENTINELLA] }),
+    'app/vendor/preserved.fixture.txt': SENTINELLA,
+  };
+  for (const [rel, contents] of Object.entries(additionalSentinels)) {
+    const parts = rel.split('/'); parts.pop();
+    await mkdir(join(install, ...parts), { recursive: true });
+    await writeFile(join(install, rel), contents);
+  }
+  const preservedFiles = ['state/listings.json', '.env', 'app/data/local/criteria.md', ...Object.keys(additionalSentinels)];
   const before = await Promise.all(preservedFiles.map((p) => readFile(join(install, p))));
 
-  passo(`Fabbrico il bundle "nuovo" (versione ${VERSIONE_FINTA})`);
+  passo(exactTarget ? 'Uso il bundle finale senza modificarne i byte' : `Fabbrico il bundle "nuovo" (versione ${VERSIONE_FINTA})`);
   estrai(ZIP, nuovo);
   const nuovoRoot = await radiceEstratta(nuovo);
   const versionJs = join(nuovoRoot, 'app', 'src', 'version.js');
   const src = await readFile(versionJs, 'utf8');
-  await writeFile(versionJs, src.replace(/APP_VERSION = '[^']+'/, `APP_VERSION = '${VERSIONE_FINTA}'`));
+  const targetVersion = exactTarget ? src.match(/APP_VERSION\s*=\s*['"]([^'"]+)['"]/)?.[1] : VERSIONE_FINTA;
+  if (!targetVersion) throw new Error('Versione del bundle finale non riconosciuta.');
+  if (!exactTarget) await writeFile(versionJs, src.replace(/APP_VERSION = '[^']+'/, `APP_VERSION = '${targetVersion}'`));
   // La prova che i file sono stati sostituiti davvero, non solo che il numero è cambiato.
-  await writeFile(join(nuovoRoot, 'PROVA-AGGIORNAMENTO.txt'), 'arrivato con la versione nuova\n');
+  if (!exactTarget) await writeFile(join(nuovoRoot, 'PROVA-AGGIORNAMENTO.txt'), 'arrivato con la versione nuova\n');
   // Si comprime il CONTENUTO di `nuovo/`, che è la cartella `HouseFinder/`: così l'archivio ha la
   // stessa forma di quello vero, cartella-contenitore compresa.
-  comprimi(nuovo, zipNuovo);
+  if (exactTarget) await cp(ZIP, zipNuovo);
+  else comprimi(nuovo, zipNuovo);
+  const expectedUpdater = await readFile(join(nuovoRoot, 'app', 'scripts', 'updater.js'));
+  const originalUpdater = await readFile(join(install, 'app', 'scripts', 'updater.js'));
+  const digest = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
   const { size } = await stat(zipNuovo);
 
   passo('Avvio il finto feed di GitHub');
@@ -218,7 +261,7 @@ async function main(): Promise<void> {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
-        tag_name: `v${VERSIONE_FINTA}`,
+        tag_name: `v${targetVersion}`,
         html_url: 'http://127.0.0.1/finta',
         body: 'Release di prova.',
         assets: [
@@ -247,6 +290,9 @@ async function main(): Promise<void> {
     THUMBS_DIR: 'state/thumbs',
     INSTALL_ROOT: install,
   };
+  for (const key of Object.keys(env)) {
+    if (/API_KEY|TOKEN|PASS|IMAP_|OPENAI_|OPENROUTER_|GROQ_|ANTHROPIC_|GEMINI_/i.test(key)) delete env[key as keyof typeof env];
+  }
   // Dalla 1.5.0 `node.exe` sta in `app/`; prima stava in cima. Si parte con quello che c'è.
   const nodeExe = (await esiste(join(install, 'app', 'node.exe')))
     ? join(install, 'app', 'node.exe')
@@ -275,10 +321,10 @@ async function main(): Promise<void> {
 
     passo("Aspetto che si spenga e torni su da solo (l'app rilanciata non è più figlia nostra)");
     app = null; // da qui in poi il processo che conta è quello che rilancia l'aggiornatore
-    const dopo = await attendiVersione(VERSIONE_FINTA, 300_000);
-    if (dopo !== VERSIONE_FINTA) {
+    const dopo = await attendiVersione(targetVersion, 300_000);
+    if (dopo !== targetVersion) {
       mostraDiario(install);
-      throw new Error(`è tornato su con la versione ${dopo ?? 'nessuna'}, attesa ${VERSIONE_FINTA}`);
+      throw new Error(`è tornato su con la versione ${dopo ?? 'nessuna'}, attesa ${targetVersion}`);
     }
     console.log(`   tornato su con la ${dopo}`);
 
@@ -296,7 +342,8 @@ async function main(): Promise<void> {
 
     passo('Controllo cosa è cambiato e cosa no');
     const prove: Array<[string, boolean]> = [
-      ['i file nuovi sono arrivati', await esiste(join(install, 'PROVA-AGGIORNAMENTO.txt'))],
+      ['il codice updater finale è arrivato', expectedUpdater.equals(await readFile(join(install, 'app', 'scripts', 'updater.js')))],
+      ['i file nuovi sono arrivati', exactTarget || await esiste(join(install, 'PROVA-AGGIORNAMENTO.txt'))],
       ['la struttura nuova è in posto', await esiste(join(install, 'app', 'node.exe'))],
       [
         "l'archivio è intatto",
@@ -309,7 +356,7 @@ async function main(): Promise<void> {
           SENTINELLA,
         ),
       ],
-      ['il lucchetto è stato restituito', !(await esiste(join(install, 'state', 'update.lock')))],
+      ['il lucchetto è stato restituito', readLock(join(install, 'state')) === null],
       ['dati personali identici byte per byte', (await Promise.all(preservedFiles.map((p) => readFile(join(install, p)))))
         .every((contents, i) => contents.equals(before[i]!))],
     ];
@@ -318,6 +365,12 @@ async function main(): Promise<void> {
       console.log(`   ${ok ? '✅' : '❌'} ${nome}`);
       if (!ok) tutteVere = false;
     }
+    await writeFile(join(base, 'result.json'), JSON.stringify({ ok: tutteVere, from: prima, to: dopo,
+      exactTarget, port: PORTA_APP, checks: Object.fromEntries(prove),
+      originalUpdaterSha256: digest(originalUpdater), targetUpdaterSha256: digest(expectedUpdater),
+      targetZipSha256: digest(await readFile(zipNuovo)),
+      preserved: preservedFiles.map((path, index) => ({ path, sha256: digest(before[index]!) })),
+    }, null, 2));
 
     await mostraDiario(install);
     esito = tutteVere ? 0 : 1;

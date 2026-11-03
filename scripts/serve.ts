@@ -111,6 +111,7 @@ async function main(): Promise<void> {
     if (spegnimentoInCorso) return;
     spegnimentoInCorso = true;
     console.log('[server] spengo.');
+    app.locals.closeAi?.();
     tray?.stop();
     // Il writer resta proprietario finché la run salva. Anche l'uscita forzata per SSE aperte
     // si arma soltanto dopo la run: l'updater può annullarsi se il padre impiega troppo tempo.

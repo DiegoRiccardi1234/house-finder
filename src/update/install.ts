@@ -158,6 +158,7 @@ export async function stageUpdater(installRoot: string, nodeExe: string): Promis
 }
 
 export interface LaunchOptions {
+  lockOwner: string;
   installRoot: string;
   zipPath: string;
   tempDir: string;
@@ -192,6 +193,7 @@ export async function launchUpdater(opts: LaunchOptions): Promise<number | undef
       '--temp', opts.tempDir,
       '--parent-pid', String(process.pid),
       '--version', opts.version,
+      '--lock-owner', opts.lockOwner,
       // Sempre per ultimo: quello che segue sono gli argomenti con cui riavviare l'app.
       '--relaunch', ...opts.relaunchArgs,
     ],

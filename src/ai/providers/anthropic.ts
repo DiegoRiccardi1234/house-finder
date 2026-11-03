@@ -44,7 +44,7 @@ export function createAnthropicProvider(cfg: {
     try {
       const res = await fetch(`${cfg.baseURL}${path}`, {
         ...init,
-        signal: ctrl.signal,
+        signal: init.signal ? AbortSignal.any([ctrl.signal, init.signal]) : ctrl.signal,
         headers: {
           'content-type': 'application/json',
           'x-api-key': cfg.apiKey,
@@ -87,6 +87,7 @@ export function createAnthropicProvider(cfg: {
 
       const j = (await call('/messages', {
         method: 'POST',
+        signal: req.signal,
         body: JSON.stringify({
           model: req.model,
           max_tokens: req.maxTokens ?? 4096,

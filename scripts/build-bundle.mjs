@@ -79,7 +79,7 @@ const LEGGIMI = [
   '',
   'Tutto si configura dentro l app, in Config:',
   '  - Email        la casella da cui arrivano gli avvisi dei portali',
-  '  - Provider AI  la chiave del servizio che valuta gli annunci, e quale modello usare',
+  '  - Connessioni AI  Codex locale, Claude Code facoltativo o provider API scelti da te',
   '  - Gruppi FB    accesso a Facebook e gruppi da seguire',
   '  - App          aggiornamenti e installazione dei browser',
   '',
@@ -135,27 +135,6 @@ static class Launcher {
 }
 `;
 
-/** Disegna l'icona della casetta e la salva come .ico: nessun binario da versionare. */
-const ICON_PS1 = `param([string]$Out)
-Add-Type -AssemblyName System.Drawing
-$bmp = New-Object System.Drawing.Bitmap 64, 64
-$g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-$verde = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255,74,107,82))
-$bianco = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
-$g.FillEllipse($verde, 0, 0, 63, 63)
-$tetto = New-Object System.Drawing.Drawing2D.GraphicsPath
-$tetto.AddPolygon(@((New-Object System.Drawing.Point 32,14),(New-Object System.Drawing.Point 52,32),(New-Object System.Drawing.Point 12,32)))
-$g.FillPath($bianco, $tetto)
-$g.FillRectangle($bianco, 20, 32, 24, 18)
-$g.FillRectangle($verde, 28, 38, 8, 12)
-$icona = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
-$fs = [System.IO.File]::Create($Out)
-$icona.Save($fs)
-$fs.Close()
-$g.Dispose(); $bmp.Dispose()
-`;
-
 /**
  * Costruisce `HouseFinder.exe` con il compilatore C# che sta dentro Windows.
  *
@@ -163,7 +142,7 @@ $g.Dispose(); $bmp.Dispose()
  * GitHub. Non serve installare niente, e il risultato e' un eseguibile vero con la sua icona
  * invece di uno script che sembra un file di sistema.
  *
- * Se manca, si ripiega sul `.vbs`: un pacchetto meno bello e' meglio di nessun pacchetto.
+ * Errori di compilazione interrompono la build: la release deve contenere l'EXE con icona.
  */
 async function buildLauncher() {
   const csc = join(
@@ -176,10 +155,9 @@ async function buildLauncher() {
   const lavoro = join(DIST, 'launcher-src');
   await mkdir(lavoro, { recursive: true });
   const cs = join(lavoro, 'Launcher.cs');
-  const ico = join(lavoro, 'app.ico');
-  const ps1 = join(lavoro, 'icona.ps1');
+  const ico = join(APP, 'scripts', 'house.ico');
+  const ps1 = join(ROOT, 'scripts', 'build-windows-icon.ps1');
   await writeFile(cs, LAUNCHER_CS, 'utf8');
-  await writeFile(ps1, ICON_PS1, 'utf8');
 
   try {
     await stat(csc);
@@ -194,17 +172,7 @@ async function buildLauncher() {
     ]);
     console.log('   HouseFinder.exe costruito');
   } catch (e) {
-    console.warn(`   ⚠ compilatore C# non disponibile (${e.message}): ripiego sul .vbs`);
-    await writeFile(
-      join(STAGE, 'HouseFinder.vbs'),
-      [
-        'Set sh = CreateObject("WScript.Shell")',
-        'Set fso = CreateObject("Scripting.FileSystemObject")',
-        'sh.CurrentDirectory = fso.GetParentFolderName(WScript.ScriptFullName)',
-        'sh.Run "app\\node.exe app\\scripts\\serve.js --tray --open", 0, False',
-        '',
-      ].join('\r\n'),
-    );
+    throw new Error(`Impossibile costruire HouseFinder.exe: ${e.message}`, { cause: e });
   } finally {
     await rm(lavoro, { recursive: true, force: true });
   }
@@ -270,6 +238,8 @@ async function main() {
   for (const f of ['.env.example', 'README.md', 'LICENSE']) {
     await cp(join(ROOT, f), join(APP, f));
   }
+  await mkdir(join(APP, 'docs'), { recursive: true });
+  await cp(join(ROOT, 'docs', 'mcp.md'), join(APP, 'docs', 'mcp.md'));
   // Avvio con console: serve quando qualcosa non parte e si vuole vedere l'errore subito, invece
   // di andarlo a leggere in state\logs\house-finder.log. Sta dentro perché è diagnostica, non la
   // via normale — il LEGGIMI dice dov'è.
@@ -297,11 +267,22 @@ async function main() {
     ['app', 'node.exe'],
     ['app', 'scripts', 'serve.js'],
     ['app', 'scripts', 'updater.js'],
+    ['app', 'scripts', 'mcp.js'],
     ['app', 'scripts', 'tray.ps1'],
+    ['app', 'scripts', 'house.ico'],
+    ['HouseFinder.exe'],
     ['app', 'src', 'version.js'],
+    ['app', 'src', 'agent', 'service.js'],
+    ['app', 'src', 'ai', 'runtime.js'],
+    ['app', 'src', 'chat', 'service.js'],
+    ['app', 'docs', 'mcp.md'],
     ['app', 'ui', 'dist', 'index.html'],
     ['app', 'data', 'zones', 'torino.json'],
     ['app', 'node_modules', 'express', 'package.json'],
+    ['app', 'node_modules', '@modelcontextprotocol', 'server', 'dist', 'index.mjs'],
+    ['app', 'node_modules', '@modelcontextprotocol', 'server', 'dist', 'stdio.mjs'],
+    ['app', 'node_modules', '@modelcontextprotocol', 'node', 'dist', 'index.mjs'],
+    ['app', 'node_modules', 'smol-toml', 'dist', 'index.js'],
     ['LEGGIMI.txt'],
   ]) {
     const p = join(STAGE, ...atteso);
@@ -309,8 +290,7 @@ async function main() {
       throw new Error(`Pacchetto incompleto: manca ${atteso.join('/')} — build interrotta.`);
     });
   }
-  // Il lanciatore può essere l'exe o, se il compilatore C# manca, il .vbs di ripiego: uno dei due
-  // però ci deve essere, altrimenti si spedisce una cartella che non si sa come accendere.
+  // L'EXE è richiesto anche dalla lista precedente: niente fallback silenzioso nella release.
   const lanciatori = await Promise.all(
     ['HouseFinder.exe', 'HouseFinder.vbs'].map((f) =>
       stat(join(STAGE, f)).then(() => true).catch(() => false),

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { execFileSync, type ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,8 @@ import { dirname, join, posix, relative, resolve } from 'node:path';
 import { UPDATER_FILES } from '../src/update/install.js';
 import { runUpdate, waitForVersion, type Args, type UpdateRuntime } from '../scripts/updater.js';
 import { syncInstallDir } from '../src/update/sync.js';
-import { lastEvent } from '../src/update/events.js';
+import { lastEvent, writeEvent } from '../src/update/events.js';
+import { acquireLock, createLockOwner, readLock, UPDATE_LOCK_TTL_MS } from '../src/update/lock.js';
 
 /**
  * Il guardiano del vincolo più fragile dell'aggiornamento.
@@ -81,10 +82,12 @@ test('il riavvio ricrea le condizioni di partenza, tray compresa', async () => {
     '--temp', 'C:\\Temp\\hf',
     '--parent-pid', '4242',
     '--version', 'v1.3.0',
+    '--lock-owner', 'fixture-owner-123',
     '--relaunch', '--tray',
   ]);
   assert.ok(args);
   assert.equal(args.parentPid, 4242);
+  assert.equal(args.lockOwner, 'fixture-owner-123');
   // Senza questo, chi era partito dal launcher del bundle si ritrova dopo l'aggiornamento un
   // server acceso e nessuna icona: niente da cliccare per riaprirlo, niente per spegnerlo.
   assert.deepEqual(args.relaunch, ['--tray']);
@@ -96,6 +99,39 @@ test('senza argomenti non fa niente: chi ci fa doppio click merita una spiegazio
   const { parseArgs } = await import('../scripts/updater.js');
   assert.equal(parseArgs([]), null);
   assert.equal(parseArgs(['--root', 'C:\\HF']), null, 'argomenti a metà = non si parte');
+});
+
+test('updater refuses a mismatched owner without touching the active generation', async () => {
+  const s = await transactionScenario();
+  try {
+    const owner = createLockOwner();
+    acquireLock(s.args.state, 'existing', 123, owner);
+    const code = await runUpdate({ ...s.args, lockOwner: createLockOwner() }, { ...s.runtime,
+      waitParent: async () => assert.fail('non deve iniziare un update di un altro owner') });
+    assert.equal(code, 1);
+    assert.equal(readLock(s.args.state)?.owner, owner);
+    assert.deepEqual(s.starts, []);
+  } finally { await s.clean(); }
+});
+
+test('ownership lost while waiting aborts without touching successor progress or files', async () => {
+  const s = await transactionScenario();
+  try {
+    const owner = createLockOwner(); const successor = createLockOwner();
+    acquireLock(s.args.state, 'old', 123, owner);
+    const code = await runUpdate({ ...s.args, lockOwner: owner }, { ...s.runtime, waitParent: async () => {
+      const past = new Date(Date.now() - UPDATE_LOCK_TTL_MS - 5000);
+      await utimes(join(s.args.state, 'update.lock', `owner-${owner}.json`), past, past);
+      assert.equal(acquireLock(s.args.state, 'successor', 456, successor), true);
+      writeEvent(s.args.state, { step: 'download', pct: 5, detail: 'successor progress' });
+      return true;
+    }, sync: async () => assert.fail('non deve copiare senza ownership') });
+    assert.equal(code, 1);
+    assert.equal(readLock(s.args.state)?.owner, successor);
+    assert.equal(lastEvent(s.args.state)?.detail, 'successor progress');
+    assert.equal(await readFile(join(s.args.root, 'app', 'node.exe'), 'utf8'), 'old-node');
+    assert.deepEqual(s.starts, []);
+  } finally { await s.clean(); }
 });
 
 test('i percorsi del bagaglio sono relativi ad app/ e in forma posix', () => {

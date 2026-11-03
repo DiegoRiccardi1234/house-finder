@@ -85,7 +85,7 @@ export function createAssistRouter(): Router {
     if (!aiDisponibile()) {
       return res.status(409).json({
         error: 'ai_missing',
-        detail: 'Serve una chiave AI: impostala in Config → Provider AI. I campi qui sotto restano compilabili a mano.',
+        detail: 'Configura una connessione AI per la ricerca. I campi qui sotto restano compilabili a mano.',
       });
     }
 
@@ -159,15 +159,15 @@ export function createAssistRouter(): Router {
     const seed = loadZoneSeed(slug);
     if (seed.length > 0) return res.json({ city: slug, zones: seed, source: 'incluso' });
 
-    if (!aiDisponibile()) {
+    if (!aiDisponibile('zones')) {
       return res.json({
         city: slug,
         zones: [],
         source: 'nessuna',
-        detail: `Per ${city.label} non ho un elenco già pronto. Con una chiave AI posso proporteli, oppure scrivili tu.`,
+        detail: `Per ${city.label} non ho un elenco già pronto. Configura una connessione AI per proporteli, oppure scrivili tu.`,
       });
     }
-    const out = await ask(SYSTEM_ZONE, `Città: ${city.label}.`, ZoneAI, { maxTokens: 600 });
+    const out = await ask(SYSTEM_ZONE, `Città: ${city.label}.`, ZoneAI, { maxTokens: 600, task: 'zones' });
     if (!out) {
       return res.json({
         city: slug,

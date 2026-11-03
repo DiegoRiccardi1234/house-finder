@@ -63,7 +63,7 @@ export function Tabs<T extends string>({
             style={{ fontFamily: 'var(--font-mono)' }}
           >
             {it.label}
-            {it.badge !== undefined && <span className="ml-1.5 opacity-70">{it.badge}</span>}
+            {it.badge !== undefined && <span aria-hidden="true" className="ml-1.5 opacity-70">{it.badge}</span>}
           </button>
         );
       })}

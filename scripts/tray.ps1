@@ -6,9 +6,8 @@
     compilato) o un binario di terzi dentro un repo pubblico, si usa quello che Windows ha gia':
     System.Windows.Forms.NotifyIcon, guidato da questo script in un processo figlio.
 
-    L'icona e' DISEGNATA a runtime, come fa pystray in Job e Trip Finder: cosi' non c'e' nessun
-    .ico da versionare, e nessuna eccezione da aggiungere al .gitignore (che esclude *.png fuori
-    da docs/).
+    L'icona ICO e' generata in build dalla stessa sorgente del launcher. In sviluppo viene
+    generata nel temporaneo: nessun binario viene versionato.
 
     Il file e' volutamente tutto in ASCII: PowerShell 5.1 rilegge i file come ANSI e le lettere
     accentate diventerebbero mojibake nei menu.
@@ -26,32 +25,19 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 function New-HouseIcon {
-    # La casetta del favicon: bianca su verde salvia (#4a6b52).
-    $bmp = New-Object System.Drawing.Bitmap 32, 32
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-
-    $verde = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 74, 107, 82))
-    $bianco = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
-    $g.FillEllipse($verde, 0, 0, 31, 31)
-
-    # Tetto
-    $tetto = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $tetto.AddPolygon(@(
-        (New-Object System.Drawing.Point 16, 7),
-        (New-Object System.Drawing.Point 26, 16),
-        (New-Object System.Drawing.Point 6, 16)
-    ))
-    $g.FillPath($bianco, $tetto)
-    # Corpo
-    $g.FillRectangle($bianco, 10, 16, 12, 9)
-    # Porta, scavata nel verde
-    $g.FillRectangle($verde, 14, 19, 4, 6)
-
-    $icona = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
-    $g.Dispose()
-    $bmp.Dispose()
-    return $icona
+    $iconFile = Join-Path $PSScriptRoot 'house.ico'
+    if (Test-Path -LiteralPath $iconFile) {
+        return New-Object System.Drawing.Icon $iconFile, 32, 32
+    }
+    $generator = Join-Path $PSScriptRoot 'build-windows-icon.ps1'
+    if (Test-Path -LiteralPath $generator) {
+        $temporary = Join-Path ([IO.Path]::GetTempPath()) ('house-finder-icon-' + [guid]::NewGuid().ToString() + '.ico')
+        try {
+            & $generator -Out $temporary
+            return New-Object System.Drawing.Icon $temporary, 32, 32
+        } finally { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue }
+    }
+    return [System.Drawing.SystemIcons]::Application.Clone()
 }
 
 function Open-App {
