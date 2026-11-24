@@ -348,7 +348,8 @@ export async function runFacebook(opts: RunOptions): Promise<RunResult> {
     errors.push(message);
     log(`[facebook] ${message}`);
   };
-  const browser = await launchBrowser();
+  // Stesso browser del login (Chrome/Edge installato): la sessione resta legata a un dispositivo noto.
+  const browser = await launchBrowser({ preferInstalled: true });
   try {
     const ctx = await newContext(browser, { storageState: FB_STATE_PATH });
     try {

@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-11-24
+
+### Fixed
+
+- Facebook sign-in no longer saves the session while Facebook is still asking for verification:
+  the `c_user` cookie appears on the checkpoint page already, which left a half-verified session
+  and triggered a new verification every time. The app now waits until no verification page is open.
+- Facebook sign-in and group reading use the installed Chrome (or Edge) instead of Chrome for
+  Testing, so Facebook sees one known device for both. `BROWSER_CHANNEL` still overrides.
+- The browser keeps its real user agent; the fixed "Chrome 131" string mismatched newer browsers'
+  client hints. Headless mode still hides "HeadlessChrome" with the real version.
+- Sign-in waits up to ten minutes and stops with a clear message if the window is closed.
+
 ## [1.8.1] - 2026-11-24
 
 ### Fixed

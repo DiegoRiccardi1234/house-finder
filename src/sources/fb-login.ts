@@ -14,7 +14,19 @@ import { FB_STATE_PATH } from '../config/facebook.js';
  * pulsante nella UI. Duplicarlo avrebbe voluto dire correggere i bug una volta sola su due.
  */
 
-export const LOGIN_TIMEOUT_MS = 5 * 60_000;
+export const LOGIN_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Pagine in cui Facebook sta ancora chiedendo qualcosa: verifica dispositivo, codice 2FA, conferma
+ * identità. Il cookie `c_user` compare GIÀ qui, prima che la verifica sia completata: salvare la
+ * sessione a questo punto la lascia a metà, e al giro dopo Facebook richiede tutto da capo.
+ */
+const PAGINE_IN_VERIFICA = /\/(checkpoint|login|two_step_verification|two_factor|auth_platform|recover|confirmemail|device-based)/i;
+
+/** Accesso davvero concluso: cookie di sessione presente e nessuna pagina di verifica aperta. */
+export function loginComplete(loggedIn: boolean, urls: string[]): boolean {
+  return loggedIn && urls.length > 0 && urls.every((url) => !PAGINE_IN_VERIFICA.test(url));
+}
 
 export interface FbSessionInfo {
   exists: boolean;
@@ -65,7 +77,7 @@ export async function loginToFacebook(
   log('Apro una finestra del browser…');
   let browser;
   try {
-    browser = await launchBrowser();
+    browser = await launchBrowser({ preferInstalled: true });
   } catch (e) {
     throw new Error(
       `Non riesco ad aprire il browser: ${(e as Error).message}. ` +
@@ -82,12 +94,26 @@ export async function loginToFacebook(
 
     const scadenza = Date.now() + timeoutMs;
     let ok = false;
+    let conferme = 0;
+    let avvisato = false;
     while (Date.now() < scadenza) {
-      if (await isLoggedIn(ctx)) {
-        ok = true;
-        break;
+      const urls = ctx.pages().filter((p) => !p.isClosed()).map((p) => p.url());
+      const loggato = await isLoggedIn(ctx);
+      if (loginComplete(loggato, urls)) {
+        // Due controlli di fila: Facebook passa per redirect intermedi prima della pagina finale.
+        if (++conferme >= 2) { ok = true; break; }
+      } else {
+        conferme = 0;
+        if (loggato && !avvisato) {
+          avvisato = true;
+          log('Facebook chiede una verifica: completala nella finestra, aspetto che finisca.');
+        }
       }
-      await page.waitForTimeout(2000);
+      if (!browser.isConnected() || urls.length === 0) {
+        throw new Error('Finestra del browser chiusa prima di completare l\'accesso. Riprova.');
+      }
+      // Non `page.waitForTimeout`: se la verifica si apre in un'altra scheda e chiudi la prima, lancerebbe.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
     if (!ok) {
       throw new Error('Tempo scaduto: non ho rilevato l\'accesso. Riprova.');
