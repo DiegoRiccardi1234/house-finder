@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join, delimiter } from 'node:path';
@@ -16,12 +16,15 @@ const MESSAGES = {
   protocol_error: 'Risposta del runtime non utilizzabile.', tools_disabled: 'Il runtime ha richiesto uno strumento non consentito.',
   unsupported_capability: 'Questo runtime non supporta le immagini richieste.',
   truncated: 'Risposta del runtime troncata: risultato non applicato.',
+  model_unavailable: 'Il modello scelto non è disponibile per questo account: scegline un altro dalla diagnostica o lascia vuoto per il predefinito.',
 } as const;
 export class RuntimeError extends Error {
   constructor(public readonly code: keyof typeof MESSAGES) { super(MESSAGES[code]); }
 }
 function safeError(value: unknown): RuntimeError {
   const text = JSON.stringify(value)?.toLowerCase() ?? '';
+  // Prima delle altre: il messaggio cita "chatgpt account" e non deve sembrare un problema di login.
+  if (/modelnotfound|model_not_found|model[^"]{0,60}not supported|unknown model|invalid model/.test(text)) return new RuntimeError('model_unavailable');
   if (/quota|usage.?limit|rate.?limit|429|budgetexceeded/.test(text)) return new RuntimeError('quota_exhausted');
   if (/unauthori|not.?logged|not.?authenticated|authentication|login required|401/.test(text)) return new RuntimeError('not_authenticated');
   if (/cancel|interrupt/.test(text)) return new RuntimeError('cancelled');
@@ -46,19 +49,41 @@ function findNative(root: string, filename: string, depth = 0): string | undefin
     if (entry.isDirectory()) { const found = findNative(path, filename, depth + 1); if (found) return found; }
   }
 }
-export function findRuntimeCli(kind: 'codex' | 'claude'): string | undefined {
-  const paths = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
-  const filename = process.platform === 'win32' ? `${kind}.exe` : kind;
+/** Tutti i `filename` sotto `root` (profondità limitata), dal più recente: le cartelle versionate cambiano a ogni aggiornamento. */
+function newestNative(root: string, filename: string, depth = 0, found: { path: string; mtime: number }[] = []): { path: string; mtime: number }[] {
+  if (!existsSync(root) || depth > 4) return found;
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isFile() && entry.name.toLowerCase() === filename) found.push({ path, mtime: statSync(path).mtimeMs });
+    else if (entry.isDirectory()) newestNative(path, filename, depth + 1, found);
+  }
+  return depth === 0 ? found.sort((a, b) => b.mtime - a.mtime) : found;
+}
+/**
+ * Il client nativo. Prima il PATH; su Windows anche le installazioni che non lo toccano: l'app desktop
+ * di Codex tiene il CLI in `%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\` e il daemon in
+ * `~\.codex\packages\app-server-daemon\releases\<versione>\bin\`. Lanciata con doppio click, l'app
+ * non eredita il PATH di un terminale Codex: senza questi percorsi risultava "non installato".
+ */
+export function findRuntimeCli(kind: 'codex' | 'claude', env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | undefined {
+  const paths = (env.PATH ?? env.Path ?? '').split(platform === 'win32' ? ';' : delimiter).filter(Boolean);
+  const filename = platform === 'win32' ? `${kind}.exe` : kind;
   for (const dir of paths) { const path = join(dir, filename); if (existsSync(path)) return path; }
-  if (process.platform === 'win32' && kind === 'codex') {
+  const home = env.USERPROFILE || env.HOME || homedir();
+  if (platform === 'win32' && kind === 'codex') {
     for (const dir of paths) {
       for (const root of [join(dir, 'node_modules', '@openai', 'codex'), join(dir, 'node_modules', '@openai', 'codex-win32-x64')]) {
         const found = findNative(root, filename); if (found) return found;
       }
     }
+    const roots = [
+      ...(env.LOCALAPPDATA ? [join(env.LOCALAPPDATA, 'OpenAI', 'Codex', 'bin')] : []),
+      join(home, '.codex', 'packages', 'app-server-daemon', 'releases'),
+    ];
+    for (const root of roots) { const [newest] = newestNative(root, filename); if (newest) return newest.path; }
   }
-  if (process.platform === 'win32' && kind === 'claude') {
-    const native = join(homedir(), '.local', 'bin', 'claude.exe'); if (existsSync(native)) return native;
+  if (platform === 'win32' && kind === 'claude') {
+    const native = join(home, '.local', 'bin', 'claude.exe'); if (existsSync(native)) return native;
   }
   return undefined;
 }
@@ -233,6 +258,12 @@ async function codexSession<T>(signal: AbortSignal, options: RuntimeOptions, run
     return await run(session, cwd);
   } finally { await session.close(); await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 }
+/**
+ * Argomenti comuni del CLI Claude. `--tools` è variadico: subito dopo `--tools ''` deve venire
+ * un'altra opzione, altrimenti `auth status --json` diventano nomi di tool e il CLI rifiuta `--json`
+ * (è il motivo per cui la diagnostica falliva mentre la chat funzionava).
+ */
+const CLAUDE_BASE = ['--setting-sources', '', '--safe-mode', '--strict-mcp-config', '--tools', '', '--disable-slash-commands', '--no-chrome'];
 const ENVELOPE = { type: 'object', properties: { json: { type: 'string' } }, required: ['json'], additionalProperties: false };
 export async function runtimeChat(connection: AiConnection, request: RuntimeRequest, options: RuntimeOptions = {}): Promise<ChatReply> {
   const shutdown = new AbortController();
@@ -282,7 +313,7 @@ export async function runtimeChat(connection: AiConnection, request: RuntimeRequ
       const file = options.command?.file ?? findRuntimeCli('claude');
       if (!file) throw new RuntimeError('not_installed');
       const cwd = await mkdtemp(join(tmpdir(), 'house-finder-runtime-'));
-      const base = [...(options.command?.args ?? []), '--setting-sources', '', '--safe-mode', '--strict-mcp-config', '--tools', '', '--disable-slash-commands', '--no-chrome'];
+      const base = [...(options.command?.args ?? []), ...CLAUDE_BASE];
       const once = async (args: string[], input = '') => {
         const session = new Session(file, args, cwd, signal, true);
         try { session.child.stdin.end(input); return await session.event() as any; } finally { await session.close(); }
@@ -321,7 +352,7 @@ export async function runtimeStatus(connection: AiConnection, options: RuntimeOp
       // Subscription cannot be inferred from the executable alone. Never initiate login.
       const file = options.command?.file ?? findRuntimeCli('claude')!;
       const cwd = await mkdtemp(join(tmpdir(), 'house-finder-runtime-'));
-      const session = new Session(file, [...(options.command?.args ?? []), '--setting-sources', '', '--safe-mode', '--strict-mcp-config', '--tools', '', 'auth', 'status', '--json'], cwd, signal, true);
+      const session = new Session(file, [...(options.command?.args ?? []), ...CLAUDE_BASE, 'auth', 'status', '--json'], cwd, signal, true);
       try {
         session.child.stdin.end(); const auth = await session.event() as any;
         if (!auth.loggedIn) throw new RuntimeError('not_authenticated');

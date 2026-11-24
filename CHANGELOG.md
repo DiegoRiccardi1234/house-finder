@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-11-24
+
+### Fixed
+
+- Codex installed by the desktop app is found even when it is not on the PATH, so the app
+  started with a double click no longer reports it as missing. The newest installed build is used.
+- A model that is no longer available to the account now reports a clear "model unavailable"
+  error instead of a generic unusable-response message.
+- Claude Code connection diagnostics no longer fail while chat works: the status check passed
+  its arguments in an order the CLI parsed as tool names.
+- When the configured port is reserved by Windows (Hyper-V/WSL), the server falls back to a fixed
+  spare port and records it in `.env`, instead of exiting without a visible error.
+
 ## [1.8.0] - 2026-11-03
 
 ### Added

@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { runtimeChat, runtimeStatus, runtimeEnvironment, codexOverrides, closeRuntimes, RuntimeError } from '../src/ai/runtime.js';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { runtimeChat, runtimeStatus, runtimeEnvironment, codexOverrides, closeRuntimes, RuntimeError, findRuntimeCli } from '../src/ai/runtime.js';
 import type { AiConnection } from '../src/ai/connections.js';
 const fake = fileURLToPath(new URL('./fixtures/fake-agent-runtime.mjs', import.meta.url));
 const connection: AiConnection = { id: 'test-runtime', label: 'Test', kind: 'codex', model: 'test-model', reasoning: 'high', vision: true, enabled: true };
@@ -29,7 +32,7 @@ test('runtime: diagnostica non esegue inferenze e verifica auth account e modell
   assert.equal(absent.ready, false); assert.equal(absent.code, 'not_authenticated');
 });
 test('runtime: account API, tool richiesti, quota, troncamento e JSON rotto danno errori controllati', async () => {
-  for (const [scenario, code] of [['api-account', 'subscription_required'], ['tool', 'tools_disabled'], ['tool-start', 'tools_disabled'], ['quota', 'quota_exhausted'], ['length', 'truncated'], ['malformed', 'protocol_error']]) {
+  for (const [scenario, code] of [['model', 'model_unavailable'], ['api-account', 'subscription_required'], ['tool', 'tools_disabled'], ['tool-start', 'tools_disabled'], ['quota', 'quota_exhausted'], ['length', 'truncated'], ['malformed', 'protocol_error']]) {
     await assert.rejects(runtimeChat(connection, { ...request, json: true }, options(scenario)), (e: unknown) => {
       assert.ok(e instanceof RuntimeError); assert.equal(e.code, code); assert.doesNotMatch(e.message, /PRIVATE_SECRET/); return true;
     });
@@ -55,8 +58,26 @@ test('runtime: ambiente depurato e server MCP ereditati disabilitati soltanto ne
   assert.equal(config['mcp_servers.jobfinder.enabled'], false); assert.equal(config['mcp_servers.other.enabled'], false);
   assert.throws(() => codexOverrides('bad = ['), RuntimeError);
 });
+test('runtime: Codex installato dall’app desktop trovato anche fuori dal PATH, versione più recente', () => {
+  const root = mkdtempSync(join(tmpdir(), 'hf-find-cli-'));
+  try {
+    const local = join(root, 'local'), home = join(root, 'home');
+    const old = join(local, 'OpenAI', 'Codex', 'bin', 'aaa111'), recent = join(local, 'OpenAI', 'Codex', 'bin', 'bbb222');
+    for (const dir of [old, recent]) mkdirSync(dir, { recursive: true });
+    writeFileSync(join(old, 'codex.exe'), ''); writeFileSync(join(recent, 'codex.exe'), '');
+    utimesSync(join(old, 'codex.exe'), new Date(2020, 0, 1), new Date(2020, 0, 1));
+    const env = { PATH: join(root, 'nothing'), LOCALAPPDATA: local, USERPROFILE: home };
+    assert.equal(findRuntimeCli('codex', env, 'win32'), join(recent, 'codex.exe'));
+    const daemon = join(home, '.codex', 'packages', 'app-server-daemon', 'releases', '0.167.0-x86_64-pc-windows-msvc', 'bin');
+    mkdirSync(daemon, { recursive: true }); writeFileSync(join(daemon, 'codex.exe'), '');
+    assert.equal(findRuntimeCli('codex', { ...env, LOCALAPPDATA: join(root, 'missing') }, 'win32'), join(daemon, 'codex.exe'));
+    assert.equal(findRuntimeCli('codex', { PATH: '', LOCALAPPDATA: join(root, 'missing'), USERPROFILE: join(root, 'missing') }, 'win32'), undefined);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 test('Claude opzionale: auth e completamento sintetici, nessun account reale', async () => {
   const claude: AiConnection = { ...connection, kind: 'claude', vision: false };
+  const status = await runtimeStatus(claude, options());
+  assert.equal(status.ready, true); assert.equal(status.authenticated, true);
   assert.equal(JSON.parse((await runtimeChat(claude, { ...request, json: true }, options())).text).ok, true);
   await assert.rejects(runtimeChat(claude, request, options('api-account')), (e: unknown) => e instanceof RuntimeError && e.code === 'subscription_required');
   await assert.rejects(runtimeChat(claude, { ...request, messages: [{ role: 'user', content: [{ type: 'image', url: 'data:image/png;base64,aA==' }] }] }, options()),

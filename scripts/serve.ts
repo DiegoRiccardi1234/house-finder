@@ -7,7 +7,7 @@
  * l'unico che sappia spegnersi davvero quando lo chiedono la tray o l'aggiornamento.
  */
 import { spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 /** Lo mette l'aggiornatore quando riaccende l'app: cambia tre comportamenti all'avvio. */
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const APRI_BROWSER = process.argv.includes('--open');
 
 /** Quello che faceva il `.bat`: ora vale anche per il launcher senza console. */
-export async function prepareEnvironment(cwd = process.cwd()): Promise<{ port: number; stateDir: string }> {
+export async function prepareEnvironment(cwd = process.cwd()): Promise<{ port: number; stateDir: string; envFile: string }> {
   const envFile = join(cwd, '.env');
   const rootExample = join(cwd, '.env.example');
   const bundleExample = join(cwd, 'app', '.env.example');
@@ -31,7 +31,23 @@ export async function prepareEnvironment(cwd = process.cwd()): Promise<{ port: n
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('PORT non valida.');
   const stateDir = process.env.STATE_DIR ?? 'state';
   mkdirSync(resolve(cwd, stateDir), { recursive: true });
-  return { port, stateDir };
+  return { port, stateDir, envFile };
+}
+
+/**
+ * Porte di riserva quando quella configurata è riservata dal sistema. Fisse e non casuali: una porta
+ * effimera presa a caso può finire dentro un intervallo che Hyper-V riserva al riavvio successivo.
+ */
+export const FALLBACK_PORTS = [3987, 4987, 7987, 8987];
+
+/** Scrive `PORT=<n>` nel `.env` (sostituisce la riga esistente), così riavvii e collegamento MCP restano coerenti. */
+export function rememberPort(envFile: string, port: number): void {
+  const text = existsSync(envFile) ? readFileSync(envFile, 'utf8') : '';
+  const line = `PORT=${port}`;
+  const next = /^[ \t]*PORT[ \t]*=.*$/m.test(text)
+    ? text.replace(/^[ \t]*PORT[ \t]*=.*$/m, line)
+    : `${text}${text && !text.endsWith('\n') ? '\n' : ''}# Scelta da House Finder: la porta precedente era riservata dal sistema.\n${line}\n`;
+  writeFileSync(envFile, next, 'utf8');
 }
 
 function apriBrowser(url: string): void {
@@ -67,7 +83,7 @@ async function haRisposto(port: number): Promise<boolean> {
  * lucchetto ancora fresco e si rifiuterebbe di partire aspettando un aggiornatore che non c'è più.
  */
 async function main(): Promise<void> {
-  const { port: PORT, stateDir: STATE_DIR } = await prepareEnvironment();
+  const { port: PORT, stateDir: STATE_DIR, envFile } = await prepareEnvironment();
   const APPENA_AGGIORNATO = process.env.HOUSE_FINDER_UPDATED === '1';
   const URL_LOCALE = `http://localhost:${PORT}`;
   // Questi moduli leggono variabili d'ambiente all'importazione: .env deve già essere caricato.
@@ -134,38 +150,58 @@ async function main(): Promise<void> {
 
   const app = createApp({ store, stateDir: STATE_DIR, onShutdown: spegni });
 
-  // Bind SOLO su localhost: niente esposizione sulla LAN (nessuna auth su reset/config).
-  server = app.listen(PORT, '127.0.0.1', () => {
-    console.log(`🏠 House Finder ${APP_VERSION} — server su ${URL_LOCALE}`);
-    console.log(`   Archivio: ${store.size} annunci. Dev UI: npm run ui:dev (Vite :5173).`);
-    if (trayRequested()) tray = startTray(URL_LOCALE);
-    // Dopo un aggiornamento la scheda del browser è già aperta e si sta ricaricando da sola:
-    // aprirne una seconda è il difetto "due tab dopo l'update" di Job Finder.
-    if (APRI_BROWSER && !APPENA_AGGIORNATO) apriBrowser(URL_LOCALE);
-  });
+  // Porte ancora da provare se quella configurata è riservata dal sistema.
+  const riserve = FALLBACK_PORTS.filter((p) => p !== PORT);
+  let suRiserva = false;
 
-  server.on('error', async (e: NodeJS.ErrnoException) => {
-    if (e.code === 'EACCES') {
+  // Bind SOLO su localhost: niente esposizione sulla LAN (nessuna auth su reset/config).
+  const ascolta = (port: number): void => {
+    const url = `http://localhost:${port}`;
+    server = app.listen(port, '127.0.0.1', () => {
+      if (port !== PORT) {
+        try { rememberPort(envFile, port); console.log(`[avvio] porta ${PORT} riservata: uso ${port} e la ricordo nel .env.`); }
+        catch { console.warn(`[avvio] porta ${PORT} riservata: uso ${port}, ma non riesco a scriverla nel .env.`); }
+      }
+      console.log(`🏠 House Finder ${APP_VERSION} — server su ${url}`);
+      console.log(`   Archivio: ${store.size} annunci. Dev UI: npm run ui:dev (Vite :5173).`);
+      if (trayRequested()) tray = startTray(url);
+      // Dopo un aggiornamento la scheda del browser è già aperta e si sta ricaricando da sola:
+      // aprirne una seconda è il difetto "due tab dopo l'update" di Job Finder.
+      if (APRI_BROWSER && !APPENA_AGGIORNATO) apriBrowser(url);
+    });
+
+    server.on('error', async (e: NodeJS.ErrnoException) => {
       // Su Windows non è (solo) questione di permessi: Hyper-V/WSL riservano interi intervalli di
       // porte effimere, e una porta dentro uno di quelli dà EACCES anche se nessuno la sta usando.
-      console.error(
-        `[avvio] la porta ${PORT} è riservata dal sistema (succede con Hyper-V/WSL). ` +
-          `Scegline un'altra con PORT=<numero>, o guarda l'elenco con ` +
-          `\`netsh interface ipv4 show excludedportrange protocol=tcp\`.`,
-      );
+      // Con il doppio click nessuno legge il log: meglio ripiegare su una porta fissa e ricordarla.
+      const prossima = (): boolean => {
+        const next = riserve.shift();
+        if (next === undefined) return false;
+        suRiserva = true; ascolta(next); return true;
+      };
+      if (e.code === 'EACCES') {
+        if (prossima()) return;
+        console.error(
+          `[avvio] la porta ${port} è riservata dal sistema (succede con Hyper-V/WSL). ` +
+            `Scegline un'altra con PORT=<numero>, o guarda l'elenco con ` +
+            `\`netsh interface ipv4 show excludedportrange protocol=tcp\`.`,
+        );
+        process.exit(1);
+      }
+      if (e.code !== 'EADDRINUSE') throw e;
+      // Istanza singola senza mutex nativo: se sulla porta risponde già House Finder, la cosa utile
+      // è portare l'utente lì, non stampargli un errore.
+      if (await haRisposto(port)) {
+        console.log(`[avvio] House Finder è già in ascolto su ${url}: apro quello.`);
+        apriBrowser(url);
+        process.exit(0);
+      }
+      if (suRiserva && prossima()) return;
+      console.error(`[avvio] la porta ${port} è occupata da qualcos'altro.`);
       process.exit(1);
-    }
-    if (e.code !== 'EADDRINUSE') throw e;
-    // Istanza singola senza mutex nativo: se sulla porta risponde già House Finder, la cosa utile
-    // è portare l'utente lì, non stampargli un errore.
-    if (await haRisposto(PORT)) {
-      console.log(`[avvio] House Finder è già in ascolto su ${URL_LOCALE}: apro quello.`);
-      apriBrowser(URL_LOCALE);
-      process.exit(0);
-    }
-    console.error(`[avvio] la porta ${PORT} è occupata da qualcos'altro.`);
-    process.exit(1);
-  });
+    });
+  };
+  ascolta(PORT);
 
   process.on('SIGINT', spegni);
   process.on('SIGTERM', spegni);

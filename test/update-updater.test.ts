@@ -320,7 +320,7 @@ test('bootstrap bundle: crea .env da app e lo carica prima dei moduli con snapsh
     const script = `const {prepareEnvironment}=await import(${JSON.stringify(new URL('../scripts/serve.ts', import.meta.url).href)}); const boot=await prepareEnvironment(${JSON.stringify(dir)}); const fb=await import(${JSON.stringify(new URL('../src/config/facebook.ts', import.meta.url).href)}); const thumbs=await import(${JSON.stringify(new URL('../src/core/thumbs.ts', import.meta.url).href)}); console.log(JSON.stringify({...boot,fb:fb.FB_STATE_PATH,thumbs:thumbs.THUMBS_DIR}));`;
     const output = execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], { cwd: ROOT, env, encoding: 'utf8' });
     const actual = JSON.parse(output.trim().split(/\r?\n/).at(-1)!);
-    assert.deepEqual(actual, { port: 43219, stateDir: 'custom-state', fb: 'custom-fb.json', thumbs: 'custom-thumbs' });
+    assert.deepEqual(actual, { port: 43219, stateDir: 'custom-state', envFile: join(dir, '.env'), fb: 'custom-fb.json', thumbs: 'custom-thumbs' });
     assert.equal(await readFile(join(dir, '.env'), 'utf8'), await readFile(join(dir, 'app', '.env.example'), 'utf8'));
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

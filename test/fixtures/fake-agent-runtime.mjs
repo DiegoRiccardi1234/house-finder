@@ -1,6 +1,9 @@
 import { createInterface } from 'node:readline';
 const scenario = process.argv[2];
 const emit = (value) => process.stdout.write(JSON.stringify(value) + '\n');
+const tools = process.argv.indexOf('--tools');
+// Come il CLI vero: `--tools` è variadico e si mangia gli argomenti fino alla prossima opzione.
+if (tools >= 0 && process.argv[tools + 2] === 'auth') { process.stderr.write("error: unknown option '--json'\n"); process.exit(1); }
 if (process.argv.includes('auth') && process.argv.includes('status')) {
   emit({ loggedIn: scenario !== 'unauthenticated', authMethod: scenario === 'api-account' ? 'api_key' : 'claude.ai' });
 } else if (process.argv.includes('-p')) {
@@ -21,6 +24,7 @@ if (process.argv.includes('auth') && process.argv.includes('status')) {
       if (scenario === 'hang') return;
       if (scenario === 'tool') { emit({ id: 99, method: 'item/commandExecution/requestApproval', params: {} }); return; }
       if (scenario === 'tool-start') { emit({ method: 'item/started', params: { item: { type: 'commandExecution', command: 'never-run' } } }); return; }
+      if (scenario === 'model') { emit({ method: 'turn/completed', params: { turn: { status: 'failed', error: { message: "The 'gone-model' model is not supported when using Codex with a ChatGPT account.", codexErrorInfo: 'modelNotFound' } } } }); return; }
       if (scenario === 'quota') { emit({ method: 'turn/completed', params: { turn: { status: 'failed', error: { message: 'quota usage_limit PRIVATE_SECRET' } } } }); return; }
       if (scenario === 'length') { emit({ method: 'turn/completed', params: { turn: { status: 'failed', error: { codexErrorInfo: 'contextWindowExceeded' } } } }); return; }
       const report = { ok: true, model: params.model, effort: params.effort, images: params.input.filter((p) => p.type === 'image').length,
