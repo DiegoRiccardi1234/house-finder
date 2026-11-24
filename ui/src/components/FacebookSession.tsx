@@ -86,6 +86,16 @@ export function FacebookSession({ onChanged }: { onChanged?: () => void }) {
         >
           {session?.exists ? 'Rifai l\'accesso' : 'Accedi a Facebook'}
         </Button>
+        {session?.braveAvailable && (
+          <Button
+            size="sm"
+            variant={session?.exists ? 'ghost' : 'secondary'}
+            disabled={busy}
+            onClick={() => void start(() => api.fbImportBrave())}
+          >
+            Prendi la sessione da Brave
+          </Button>
+        )}
         {session?.exists && (
           <Button
             size="sm"
@@ -102,6 +112,13 @@ export function FacebookSession({ onChanged }: { onChanged?: () => void }) {
           </Button>
         )}
       </div>
+
+      {session?.braveAvailable && (
+        <p className="text-xs text-muted">
+          Se Facebook chiede una verifica a ogni accesso dalla finestra dell'app, usa Brave: se lì sei
+          già dentro, la sessione si copia senza login. Prima chiudi Brave del tutto.
+        </p>
+      )}
 
       <p className="text-xs text-faint">
         I cookie restano su questo computer, in <code>state/fb-state.json</code>: non vengono

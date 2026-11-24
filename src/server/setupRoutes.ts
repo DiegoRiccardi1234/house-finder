@@ -23,6 +23,7 @@ import {
   type SearchRow,
 } from '../config/profile.js';
 import { loginToFacebook, readSession } from '../sources/fb-login.js';
+import { braveAvailable, importFacebookFromBrave } from '../sources/fb-import.js';
 import { browsersInstalled, installBrowsers } from './browsers.js';
 import { JobBusyError, JobManager, type JobId } from './jobs.js';
 
@@ -98,7 +99,19 @@ export function createSetupRouter(jobs: JobManager): Router {
   // --- Facebook -------------------------------------------------------------------------------
 
   r.get('/facebook/session', (_req, res) => {
-    res.json(readSession());
+    res.json({ ...readSession(), braveAvailable: braveAvailable() });
+  });
+
+  /**
+   * Prende la sessione dal Brave in cui si è già dentro. Stesso id di lavoro del login: i due
+   * scrivono lo stesso file, quindi non devono mai girare insieme.
+   */
+  r.post('/facebook/import-brave', (req, res) => {
+    if (requireJson(req, res)) return;
+    startJob('fb-login', res, async (log) => {
+      const id = await importFacebookFromBrave(log);
+      return `Collegato all'account ${id}, sessione presa da Brave.`;
+    });
   });
 
   /**

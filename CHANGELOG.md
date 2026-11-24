@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-11-24
+
+### Added
+
+- Config → Facebook → "Prendi la sessione da Brave": copies the Facebook session from the Brave
+  profile where the user is already signed in, without a new login or verification. Shown only when
+  Brave is installed; asks to close Brave when its profile is locked. `npm run fb:from-brave` shares
+  the same code.
+
+### Fixed
+
+- After falling back to a spare port the server now exports it to its own environment. The updater
+  inherits that environment and verified the restart on port 3000, so it rolled the update back and
+  closed whatever the app was doing, including an open Facebook sign-in window.
+
 ## [1.8.2] - 2026-11-24
 
 ### Fixed

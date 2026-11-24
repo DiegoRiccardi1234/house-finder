@@ -234,6 +234,8 @@ export interface FbSession {
   exists: boolean;
   accountId: string | null;
   expiresAt: string | null;
+  /** Brave installato con un profilo: si può prendere la sessione da lì. */
+  braveAvailable?: boolean;
 }
 
 export type JobId = 'fb-login' | 'install-browsers';

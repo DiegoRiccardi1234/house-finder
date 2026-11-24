@@ -158,6 +158,9 @@ async function main(): Promise<void> {
   const ascolta = (port: number): void => {
     const url = `http://localhost:${port}`;
     server = app.listen(port, '127.0.0.1', () => {
+      // L'aggiornatore eredita l'ambiente e verifica il riavvio su process.env.PORT: senza questa riga,
+      // dopo un ripiego cercava la nuova versione sulla 3000, non la trovava e ripristinava la vecchia.
+      process.env.PORT = String(port);
       if (port !== PORT) {
         try { rememberPort(envFile, port); console.log(`[avvio] porta ${PORT} riservata: uso ${port} e la ricordo nel .env.`); }
         catch { console.warn(`[avvio] porta ${PORT} riservata: uso ${port}, ma non riesco a scriverla nel .env.`); }

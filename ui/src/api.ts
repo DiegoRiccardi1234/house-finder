@@ -108,6 +108,8 @@ export const api = {
 
   fbSession: () => fetch('/api/facebook/session').then((r) => json<FbSession>(r)),
   fbLogin: () => fetch('/api/facebook/login', { method: 'POST', headers: jsonHeaders, body: '{}' }),
+  fbImportBrave: () =>
+    fetch('/api/facebook/import-brave', { method: 'POST', headers: jsonHeaders, body: '{}' }),
   fbForget: () =>
     fetch('/api/facebook/session', { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
 
