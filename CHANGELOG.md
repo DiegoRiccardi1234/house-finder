@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-11-26
+
+### Fixed
+
+- "Chi cerca casa" no longer assumes "Lavoro" for a new user. The occupation starts empty, the
+  other fields unlock once it is chosen, and until then tenant restrictions are not checked, so a
+  student who saves without looking does not lose the "solo studenti" listings.
+
 ## [1.9.2] - 2026-11-26
 
 ### Fixed

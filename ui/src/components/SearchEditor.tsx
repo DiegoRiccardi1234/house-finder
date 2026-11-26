@@ -61,11 +61,11 @@ function Section({ title, intro, children, action }: { title: string; intro?: st
   );
 }
 
-function TriState({ label, value, onChange, yes, no }: { label: string; value: boolean | null | undefined; onChange: (v: boolean | null) => void; yes: string; no: string }) {
+function TriState({ label, value, onChange, yes, no, disabled }: { label: string; value: boolean | null | undefined; onChange: (v: boolean | null) => void; yes: string; no: string; disabled?: boolean }) {
   return (
     <Field label={label}>
       {(a) => (
-        <Select {...a} value={value == null ? '' : value ? 'si' : 'no'} onChange={(e) => onChange(e.target.value === '' ? null : e.target.value === 'si')}>
+        <Select {...a} disabled={disabled} value={value == null ? '' : value ? 'si' : 'no'} onChange={(e) => onChange(e.target.value === '' ? null : e.target.value === 'si')}>
           <option value="">Preferisco non dirlo</option>
           <option value="si">{yes}</option>
           <option value="no">{no}</option>
@@ -232,8 +232,13 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
   if (!p) return <p className="text-sm text-muted">Carico…</p>;
 
   const set = (patch: Partial<Profile>): void => setP({ ...p, ...patch });
-  const tenant: Tenant = p.tenant ?? { occupazione: 'lavoratore' };
-  const setTenant = (patch: Partial<Tenant>): void => set({ tenant: { ...tenant, ...patch } });
+  // Nessuna occupazione presunta: «lavoratore» di default scartava i «solo studenti» a uno studente
+  // che salvava senza guardare. Finché non si sceglie, il vincolo inquilino resta spento.
+  const tenant = p.tenant ?? null;
+  const setTenant = (patch: Partial<Tenant>): void => {
+    if (tenant) set({ tenant: { ...tenant, ...patch } });
+    else if (patch.occupazione) set({ tenant: { occupazione: patch.occupazione, ...patch } });
+  };
 
   /** L'etichetta si ricalcola da città e taglio: era un campo da inventare, non è più chiesta. */
   const etichetta = (city: string, tipo: SearchKind): string =>
@@ -331,9 +336,14 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
         intro="Serve a riconoscere gli annunci che ti escludono («solo studenti», «solo ragazze», «no animali»). Non esce da questo computer."
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Field label="Occupazione">
+          <Field label="Occupazione" hint={tenant ? undefined : 'Finché non la scegli, i vincoli sull\'inquilino non vengono controllati.'}>
             {(a) => (
-              <Select {...a} value={tenant.occupazione} onChange={(e) => setTenant({ occupazione: e.target.value as Tenant['occupazione'] })}>
+              <Select
+                {...a}
+                value={tenant?.occupazione ?? ''}
+                onChange={(e) => (e.target.value ? setTenant({ occupazione: e.target.value as Tenant['occupazione'] }) : set({ tenant: null }))}
+              >
+                <option value="">Scegli…</option>
                 <option value="lavoratore">Lavoro</option>
                 <option value="studente">Studio</option>
                 <option value="altro">Altro</option>
@@ -342,15 +352,15 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
           </Field>
           <Field label="Genere">
             {(a) => (
-              <Select {...a} value={tenant.genere ?? ''} onChange={(e) => setTenant({ genere: (e.target.value || null) as Tenant['genere'] })}>
+              <Select {...a} disabled={!tenant} value={tenant?.genere ?? ''} onChange={(e) => setTenant({ genere: (e.target.value || null) as Tenant['genere'] })}>
                 <option value="">Preferisco non dirlo</option>
                 <option value="donna">Donna</option>
                 <option value="uomo">Uomo</option>
               </Select>
             )}
           </Field>
-          <TriState label="Animali" value={tenant.animali} yes="Ho animali" no="Niente animali" onChange={(v) => setTenant({ animali: v })} />
-          <TriState label="Fumo" value={tenant.fumatore} yes="Fumo" no="Non fumo" onChange={(v) => setTenant({ fumatore: v })} />
+          <TriState label="Animali" disabled={!tenant} value={tenant?.animali} yes="Ho animali" no="Niente animali" onChange={(v) => setTenant({ animali: v })} />
+          <TriState label="Fumo" disabled={!tenant} value={tenant?.fumatore} yes="Fumo" no="Non fumo" onChange={(v) => setTenant({ fumatore: v })} />
         </div>
         <Field label={`Annunci che ti escludono: tienili come «Da chiedere» se il voto è almeno ${p.askThreshold ?? 70}`} hint="Sotto questo voto vanno fra gli scartati. Sopra, restano con un messaggio pronto per chiedere se affittano anche a te.">
           {(a) => (
