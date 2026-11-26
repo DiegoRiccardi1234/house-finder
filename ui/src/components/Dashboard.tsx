@@ -1,29 +1,60 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useListings } from '../hooks';
 import { api } from '../api';
-import type { ChannelMeta, ListingFilters, SearchProfile } from '../types';
+import type { ChannelMeta, CityOption, ListingFilters, Profile, SearchProfile } from '../types';
 import { FilterBar } from './FilterBar';
 import { ListingCard } from './ListingCard';
 import { Alert } from '../ui/Alert';
-import { Kicker } from '../ui/Kicker';
 import { Button } from '../ui/Button';
 import { EmptyState } from '../ui/EmptyState';
 
 const PAGE = 48;
 
+// La mappa porta con sé Leaflet: si scarica solo quando la si apre.
+const ListingsMap = lazy(() => import('./map/ListingsMap'));
+
+/**
+ * Si parte da «Da vedere»: tutto tranne gli scartati. Prima si partiva da «Tutti», e i 32
+ * trilocali scartati il 24/11 restavano in lista, solo sbiaditi — sembravano trovati di nuovo.
+ */
 export const DEFAULT_FILTERS: ListingFilters = {
   channel: '',
-  status: '',
+  status: 'active',
   city: '',
   minScore: 0,
   sort: 'score',
   q: '',
   arredato: '',
   soloPrivati: false,
+  priceMin: '',
+  priceMax: '',
+  sqmMin: '',
+  sqmMax: '',
+  rooms: [],
+  bagni: '',
+  piano: [],
+  ascensore: false,
+  aria: false,
+  autonomo: false,
+  days: '',
+  maxKm: '',
+  inArea: false,
+  withoutGeo: true,
 };
 
-const isFiltered = (f: ListingFilters) =>
-  Boolean(f.q || f.city || f.channel || f.status || f.arredato || f.soloPrivati || f.minScore > 0);
+/** Quanti filtri sono diversi dal punto di partenza: si mostra sul pulsante «Filtra». */
+export function activeFilterCount(f: ListingFilters): number {
+  const d = DEFAULT_FILTERS;
+  let n = 0;
+  for (const k of Object.keys(d) as (keyof ListingFilters)[]) {
+    if (k === 'sort' || k === 'withoutGeo') continue;
+    const a = f[k];
+    const b = d[k];
+    if (Array.isArray(a) ? a.length > 0 : a !== b) n++;
+  }
+  return n;
+}
+
 
 export function Dashboard({
   filters,
@@ -44,14 +75,27 @@ export function Dashboard({
   runSynchronized: boolean;
   onArchiveChanged: () => void;
 }) {
-  const { items, loading, error, actionError, refresh, setStatus } = useListings(filters, refreshToken, onArchiveChanged);
+  const { items, autoDismissed, total, loading, error, actionError, refresh, setStatus } = useListings(filters, refreshToken, onArchiveChanged);
   const [searches, setSearches] = useState<SearchProfile[]>([]);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [cities, setCities] = useState<CityOption[]>([]);
   const [shown, setShown] = useState(PAGE);
-  const [mostraFiltri, setMostraFiltri] = useState(false);
+  const [vista, setVista] = useState<'lista' | 'mappa'>('lista');
 
   useEffect(() => {
     api.getSearches().then(setSearches).catch(() => setSearches([]));
+    api.cities().then(setCities).catch(() => setCities([]));
   }, []);
+  // Il profilo serve per il nome del riferimento e il messaggio «Da chiedere»: si rilegge quando
+  // l'archivio cambia (dopo un salvataggio della ricerca le regole possono aver spostato annunci).
+  useEffect(() => {
+    api.getProfile().then((s) => setProfile(s.profile)).catch(() => setProfile(null));
+  }, [refreshToken]);
+
+  const zones = profile?.zones ?? [];
+  const refOf = (city?: string | null) => (city ? zones.find((z) => z.city === city)?.riferimento : undefined) ?? zones.find((z) => z.riferimento)?.riferimento;
+  const hasReference = zones.some((z) => z.riferimento);
+  const hasArea = zones.some((z) => (z.area?.polygon.length ?? 0) >= 3);
 
   // Cambiando filtro si riparte dalla prima pagina, altrimenti si eredita uno scroll senza senso.
   useEffect(() => setShown(PAGE), [filters]);
@@ -60,7 +104,7 @@ export function Dashboard({
 
   // I filtri servono a chi ha già degli annunci. Su un archivio vuoto erano otto controlli in
   // faccia a chi non ne aveva ancora nessuno — la prima cosa che si vedeva aprendo l'app.
-  const haAnnunci = items.length > 0 || isFiltered(filters);
+  const haAnnunci = total > 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -72,28 +116,41 @@ export function Dashboard({
       {!runSynchronized && <p role="status" className="text-xs text-muted">Sincronizzo lo stato della scansione…</p>}
       {actionError && <Alert tone="warn" title="Stato non aggiornato">{actionError}</Alert>}
       {haAnnunci && (
-        <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-            {mostraFiltri ? (
-              <FilterBar
-                filters={filters}
-                onChange={onFilters}
-                count={items.length}
-                searches={searches}
-                channels={channels}
-              />
-            ) : (
-              <div className="flex flex-wrap items-center gap-3">
-                <Button size="sm" variant="secondary" onClick={() => setMostraFiltri(true)}>
-                  Filtra
-                </Button>
-                <Kicker>{items.length} annunci</Kicker>
-              </div>
+        <div className="flex flex-col gap-3">
+          <FilterBar
+            filters={filters}
+            onChange={onFilters}
+            count={items.length}
+            hidden={autoDismissed}
+            searches={searches}
+            channels={channels}
+            cities={cities}
+            hasReference={hasReference}
+            hasArea={hasArea}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <div role="group" aria-label="Vista" className="inline-flex rounded-[var(--radius-btn)] border border-line p-0.5">
+              {(['lista', 'mappa'] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  aria-pressed={vista === v}
+                  onClick={() => setVista(v)}
+                  className={vista === v ? 'rounded-[var(--radius-btn)] bg-accent px-3 py-1 text-sm text-on-accent' : 'px-3 py-1 text-sm text-muted hover:text-ink'}
+                >
+                  {v === 'lista' ? 'Lista' : 'Mappa'}
+                </button>
+              ))}
+            </div>
+            {activeFilterCount(filters) > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => onFilters({ ...DEFAULT_FILTERS, sort: filters.sort })}>
+                Azzera i filtri
+              </Button>
             )}
+            <Button size="sm" onClick={refresh} loading={loading} className="ml-auto">
+              Aggiorna
+            </Button>
           </div>
-          <Button onClick={refresh} loading={loading} className={mostraFiltri ? 'mt-5 shrink-0' : 'shrink-0'}>
-            Aggiorna
-          </Button>
         </div>
       )}
 
@@ -112,7 +169,7 @@ export function Dashboard({
       )}
 
       {items.length === 0 && !loading ? (
-        isFiltered(filters) ? (
+        total > 0 ? (
           <EmptyState
             kicker="nessun risultato"
             title="Nessun annuncio con questi filtri"
@@ -122,8 +179,8 @@ export function Dashboard({
               </Button>
             }
           >
-            L'archivio non è vuoto: sono i filtri a essere troppo stretti. Prova ad abbassare il voto
-            minimo o a togliere la città.
+            L'archivio non è vuoto: sono i filtri a essere troppo stretti. Prova a togliere qualche
+            filtro, oppure guarda fra gli scartati in automatico dal tuo profilo.
           </EmptyState>
         ) : (
           <EmptyState
@@ -140,11 +197,22 @@ export function Dashboard({
             ricerche salvate che ti mandano un avviso via mail.
           </EmptyState>
         )
+      ) : vista === 'mappa' ? (
+        <Suspense fallback={<p className="text-sm text-muted">Carico la mappa…</p>}>
+          <ListingsMap items={items} zones={zones} />
+        </Suspense>
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {visible.map((rec) => (
-              <ListingCard key={rec.key} rec={rec} onStatus={setStatus} statusDisabled={runRunning || !runSynchronized} />
+              <ListingCard
+                key={rec.key}
+                rec={rec}
+                onStatus={setStatus}
+                statusDisabled={runRunning || !runSynchronized}
+                refLabel={refOf(rec.city)?.label}
+                tenant={profile?.tenant}
+              />
             ))}
           </div>
           {shown < items.length && (

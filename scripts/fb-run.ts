@@ -32,6 +32,7 @@ async function main(): Promise<void> {
   if (NOTIFY && !DRY_RUN && !seedMode) {
     for (const rec of summary.results.flatMap((r) => r.newRecords)) {
       if (notified >= MAX_NOTIFY) break;
+      if (rec.status === 'dismissed') continue; // scartato dalle regole del profilo
       if (rec.ai && rec.ai.score < MIN_SCORE) continue;
       await sendListing('Facebook', rec.listing, rec.ai ?? undefined);
       notified++;

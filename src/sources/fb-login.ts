@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
-import { launchBrowser, newContext } from '../core/browser.js';
-import { isLoggedIn } from './fb-session.js';
+import type { BrowserContext } from 'playwright';
+import { isProfileInUseError, launchPersistentProfile } from '../core/browser.js';
+import { claimProfile, fbProfileDir, isLoggedIn, saveFbState } from './fb-session.js';
 import { FB_STATE_PATH } from '../config/facebook.js';
 
 /**
@@ -63,67 +64,96 @@ export function readSession(path: string = FB_STATE_PATH): FbSessionInfo {
 /**
  * Apre la pagina di accesso e aspetta che l'utente entri, poi salva la sessione.
  *
+ * Usa il profilo dedicato dell'app (`state/fb-browser-profile/`), non un context nuovo: è quello
+ * che fa sì che la verifica del dispositivo si faccia una volta sola. Prima ogni accesso partiva da
+ * un browser "vergine" e Facebook chiedeva tutto da capo ogni volta.
+ *
  * Torna l'id dell'account. Lancia se il login non arriva entro `timeoutMs`, o se il browser non
  * si apre affatto — che in pratica vuol dire "Chromium non è installato", ed è un messaggio da
  * dire chiaro perché ha un pulsante che lo risolve.
  */
 export async function loginToFacebook(
   log: (line: string) => void,
-  opts: { timeoutMs?: number; statePath?: string } = {},
+  opts: {
+    timeoutMs?: number;
+    statePath?: string;
+    profileDir?: string;
+    /** Solo per i test: sostituisce l'apertura del browser. */
+    launch?: (dir: string) => Promise<BrowserContext>;
+  } = {},
 ): Promise<string> {
   const timeoutMs = opts.timeoutMs ?? LOGIN_TIMEOUT_MS;
   const statePath = opts.statePath ?? FB_STATE_PATH;
+  const profileDir = opts.profileDir ?? fbProfileDir();
 
-  log('Apro una finestra del browser…');
-  let browser;
-  try {
-    browser = await launchBrowser({ preferInstalled: true });
-  } catch (e) {
-    throw new Error(
-      `Non riesco ad aprire il browser: ${(e as Error).message}. ` +
-        'Se non li hai ancora installati, usa "Installa i browser" in Config → App.',
-    );
+  const release = claimProfile(profileDir);
+  if (!release) {
+    throw new Error('È in corso una scansione di Facebook che usa la stessa finestra: aspetta che finisca e riprova.');
   }
-
   try {
-    const ctx = await newContext(browser);
-    const page = await ctx.newPage();
-    await page.goto('https://www.facebook.com/login', { waitUntil: 'domcontentloaded' });
-    log('Accedi nella finestra che si è aperta. Se hai il codice a due fattori, inseriscilo lì.');
-    log(`Aspetto fino a ${Math.round(timeoutMs / 60_000)} minuti.`);
+    log('Apro una finestra del browser…');
+    let ctx: BrowserContext;
+    try {
+      ctx = opts.launch
+        ? await opts.launch(profileDir)
+        : (await launchPersistentProfile(profileDir, { headless: false })).ctx;
+    } catch (e) {
+      if (isProfileInUseError(e)) {
+        throw new Error('La finestra di Facebook dell\'app è già aperta (forse da una scansione da terminale): chiudila e riprova.');
+      }
+      throw new Error(
+        `Non riesco ad aprire il browser: ${(e as Error).message}. ` +
+          'Se non li hai ancora installati, usa "Installa i browser" in Config → App.',
+      );
+    }
 
-    const scadenza = Date.now() + timeoutMs;
-    let ok = false;
-    let conferme = 0;
-    let avvisato = false;
-    while (Date.now() < scadenza) {
-      const urls = ctx.pages().filter((p) => !p.isClosed()).map((p) => p.url());
-      const loggato = await isLoggedIn(ctx);
-      if (loginComplete(loggato, urls)) {
-        // Due controlli di fila: Facebook passa per redirect intermedi prima della pagina finale.
-        if (++conferme >= 2) { ok = true; break; }
-      } else {
-        conferme = 0;
-        if (loggato && !avvisato) {
-          avvisato = true;
-          log('Facebook chiede una verifica: completala nella finestra, aspetto che finisca.');
+    let chiuso = false;
+    ctx.on('close', () => { chiuso = true; });
+    const finestraChiusa = () => new Error('Finestra del browser chiusa prima di completare l\'accesso. Riprova.');
+
+    try {
+      // Un profilo persistente si apre già con una scheda: riusarla evita una finestra vuota in più.
+      const page = ctx.pages()[0] ?? (await ctx.newPage());
+      await page.goto('https://www.facebook.com/login', { waitUntil: 'domcontentloaded' });
+      log('Accedi nella finestra che si è aperta. Se hai il codice a due fattori, inseriscilo lì.');
+      log('La prima volta Facebook può chiederti una verifica: dopo si ricorda di questo computer.');
+      log(`Aspetto fino a ${Math.round(timeoutMs / 60_000)} minuti.`);
+
+      const scadenza = Date.now() + timeoutMs;
+      let ok = false;
+      let conferme = 0;
+      let avvisato = false;
+      while (Date.now() < scadenza) {
+        if (chiuso) throw finestraChiusa();
+        const urls = ctx.pages().filter((p) => !p.isClosed()).map((p) => p.url());
+        if (urls.length === 0) throw finestraChiusa();
+        let loggato: boolean;
+        try { loggato = await isLoggedIn(ctx); } catch { throw finestraChiusa(); }
+        if (loginComplete(loggato, urls)) {
+          // Due controlli di fila: Facebook passa per redirect intermedi prima della pagina finale.
+          if (++conferme >= 2) { ok = true; break; }
+        } else {
+          conferme = 0;
+          if (loggato && !avvisato) {
+            avvisato = true;
+            log('Facebook chiede una verifica: completala nella finestra, aspetto che finisca.');
+          }
         }
+        // Non `page.waitForTimeout`: se la verifica si apre in un'altra scheda e chiudi la prima, lancerebbe.
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
-      if (!browser.isConnected() || urls.length === 0) {
-        throw new Error('Finestra del browser chiusa prima di completare l\'accesso. Riprova.');
+      if (!ok) {
+        throw new Error('Tempo scaduto: non ho rilevato l\'accesso. Riprova.');
       }
-      // Non `page.waitForTimeout`: se la verifica si apre in un'altra scheda e chiudi la prima, lancerebbe.
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-    if (!ok) {
-      throw new Error('Tempo scaduto: non ho rilevato l\'accesso. Riprova.');
-    }
 
-    await ctx.storageState({ path: statePath });
-    const info = readSession(statePath);
-    log('Sessione salvata.');
-    return info.accountId ?? '';
+      await saveFbState(ctx, statePath);
+      const info = readSession(statePath);
+      log('Sessione salvata.');
+      return info.accountId ?? '';
+    } finally {
+      await ctx.close().catch(() => {});
+    }
   } finally {
-    await browser.close().catch(() => {});
+    release();
   }
 }

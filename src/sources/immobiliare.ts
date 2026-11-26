@@ -1,4 +1,4 @@
-import type { Listing, Source } from '../core/types.js';
+import type { GeoPoint, Listing, Source } from '../core/types.js';
 import { gotoResilient, assertNotBlocked } from './page-utils.js';
 import { readNextData } from './nextdata.js';
 
@@ -11,7 +11,7 @@ interface ImmProperty {
   description?: string;
   featureList?: Array<{ type?: string; label?: string }>;
   multimedia?: { photos?: Array<{ urls?: Record<string, string> }> };
-  location?: { microzone?: string; locality?: string };
+  location?: { microzone?: string; locality?: string; address?: string; latitude?: number; longitude?: number; marker?: string };
 }
 export interface ImmResult {
   seo?: { url?: string };
@@ -68,7 +68,20 @@ export function mapResult(r: ImmResult): Listing | null {
     zone: prop?.location?.microzone ?? prop?.location?.locality ?? null,
     thumb: thumb ?? null,
     desc: buildDesc(prop),
+    geo: immGeo(prop?.location),
   };
+}
+
+/**
+ * Coordinate della scheda. Verificato dal vivo (26/11): 4 decimali (~10 m) più il nome della via,
+ * `marker: "marker"`. Senza via o con un marker diverso (area approssimata) vale come quartiere.
+ */
+export function immGeo(loc: ImmProperty['location']): GeoPoint | null {
+  const lat = Number(loc?.latitude);
+  const lng = Number(loc?.longitude);
+  if (!loc || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+  const precise = Boolean(loc.address?.trim()) && (loc.marker == null || loc.marker === 'marker');
+  return { lat, lng, precision: precise ? 'street' : 'zone', source: 'portal' };
 }
 
 /** Le query Next possono cambiare ordine: cerca la lista esplicita dei risultati. */
@@ -91,6 +104,10 @@ export const immobiliare: Source = {
     const base = `https://www.immobiliare.it/${cityPath(p.city, 'immobiliare')}`;
     const q = new URLSearchParams({ criterio: 'dataModifica', ordine: 'desc' });
     if (p.maxPrice) q.set('prezzoMassimo', String(p.maxPrice));
+    // Verificato dal vivo (26/11): con 1-2 locali i risultati di Torino ≤700 € passano da 682 a 495,
+    // tutti mono/bilo. Una pagina di 25 annunci ne contiene così molti più di utili.
+    if (p.minRooms) q.set('localiMinimo', String(p.minRooms));
+    if (p.maxRooms) q.set('localiMassimo', String(p.maxRooms));
     return `${base}?${q.toString()}`;
   },
 

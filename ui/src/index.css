@@ -165,3 +165,23 @@ h4 {
     scroll-behavior: auto !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Mappe (Leaflet). Le tile OpenStreetMap sono chiare: nel tema scuro si
+   invertono e si desaturano, così la mappa non abbaglia. I segni sopra
+   (area, pin) restano nei colori dell'app.
+   ───────────────────────────────────────────────────────────── */
+.hf-map { border-radius: var(--radius-card, 10px); overflow: hidden; border: 1px solid var(--line); }
+.hf-map .leaflet-container { font-family: var(--font-sans); background: var(--surface-3); }
+.dark .hf-map .leaflet-tile-pane { filter: invert(0.92) hue-rotate(180deg) saturate(0.55) brightness(0.95); }
+.hf-map .leaflet-control-attribution { font-size: 10px; }
+.hf-vertex {
+  width: 14px; height: 14px; border-radius: 999px;
+  background: var(--surface-hi); border: 3px solid var(--accent);
+  box-shadow: 0 0 0 2px var(--surface-hi);
+  cursor: grab;
+}
+.hf-ref {
+  width: 18px; height: 18px; border-radius: 4px; transform: rotate(45deg);
+  background: var(--warn); border: 2px solid var(--surface-hi);
+}

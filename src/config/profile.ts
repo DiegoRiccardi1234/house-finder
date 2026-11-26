@@ -19,6 +19,9 @@ import { configReadPath, localConfigPath } from './paths.js';
  * ("il centro solo se è sotto la metà del tetto"). Il form copre lo scheletro, le parole il resto.
  */
 
+/** Tipo di casa scelto nel modulo. Prima si ricavava dal label con una regex ("stanza"). */
+export type SearchKind = 'monolocale' | 'stanza' | 'bilocale' | 'trilocale' | 'quattro' | 'condivisa' | 'qualsiasi';
+
 export interface SearchRow {
   id: string;
   city: string;
@@ -26,6 +29,18 @@ export interface SearchRow {
   maxPrice: number;
   minRooms?: number;
   maxRooms?: number;
+  tipo?: SearchKind;
+}
+
+/** Un punto [lat, lng]. */
+export type LatLng = [number, number];
+
+/** Un posto da cui misurare la distanza: il lavoro, l'università, la famiglia. */
+export interface Landmark {
+  label: string;
+  address: string;
+  lat: number;
+  lng: number;
 }
 
 export interface CityZones {
@@ -33,6 +48,23 @@ export interface CityZones {
   /** Quartieri buoni. Vuoto = nessuna preferenza, e allora la zona non filtra. */
   keep: string[];
   avoid: string[];
+  /** Area disegnata sulla mappa: fuori = scartato (solo quando la posizione è nota). */
+  area?: { polygon: LatLng[] } | null;
+  /** Distanza mostrata su ogni annuncio da qui. */
+  riferimento?: Landmark | null;
+}
+
+export type Occupation = 'lavoratore' | 'studente' | 'altro';
+
+/**
+ * Chi cerca casa. Serve a capire se un vincolo dell'annuncio ("solo studenti", "solo ragazze",
+ * "no animali") esclude chi usa l'app. Tutto facoltativo tranne l'occupazione.
+ */
+export interface Tenant {
+  occupazione: Occupation;
+  genere?: 'donna' | 'uomo' | null;
+  animali?: boolean | null;
+  fumatore?: boolean | null;
 }
 
 export interface Profile {
@@ -42,9 +74,71 @@ export interface Profile {
   musts: string[];
   /** Tutto quello che un campo non prevede, in parole tue. Finisce nel prompt così com'è. */
   notes: string;
+  tenant?: Tenant | null;
+  /**
+   * Voto minimo della casa perché un annuncio con un vincolo che ti esclude resti in lista come
+   * «Da chiedere» invece di essere scartato.
+   */
+  askThreshold?: number;
 }
 
+export const DEFAULT_ASK_THRESHOLD = 70;
+
 export const EMPTY_PROFILE: Profile = { searches: [], zones: [], musts: [], notes: '' };
+
+const OCCUPATIONS: readonly Occupation[] = ['lavoratore', 'studente', 'altro'];
+export const SEARCH_KINDS: readonly SearchKind[] = ['monolocale', 'stanza', 'bilocale', 'trilocale', 'quattro', 'condivisa', 'qualsiasi'];
+
+const isLat = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= -90 && n <= 90;
+const isLng = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= -180 && n <= 180;
+
+/** Un poligono valido: almeno 3 punti numerici, al massimo 200. Altrimenti nessuna area. */
+export function cleanArea(v: unknown): { polygon: LatLng[] } | null {
+  const poly = (v as { polygon?: unknown } | null)?.polygon;
+  if (!Array.isArray(poly)) return null;
+  const pts = poly
+    .filter((p): p is [number, number] => Array.isArray(p) && isLat(p[0]) && isLng(p[1]))
+    .map(([a, b]) => [Math.round(a * 1e6) / 1e6, Math.round(b * 1e6) / 1e6] as LatLng);
+  return pts.length >= 3 && pts.length <= 200 ? { polygon: pts } : null;
+}
+
+export function cleanLandmark(v: unknown): Landmark | null {
+  const r = v as Partial<Landmark> | null;
+  if (!r || !isLat(r.lat) || !isLng(r.lng)) return null;
+  const label = typeof r.label === 'string' && r.label.trim() ? r.label.trim().slice(0, 80) : 'Riferimento';
+  const address = typeof r.address === 'string' ? r.address.trim().slice(0, 200) : '';
+  return { label, address, lat: r.lat, lng: r.lng };
+}
+
+/** Normalizza un profilo letto da disco o da una richiesta: i campi nuovi non si perdono mai. */
+export function normalizeProfile(saved: Partial<Profile>): Profile {
+  const out: Profile = {
+    searches: Array.isArray(saved.searches) ? saved.searches : [],
+    zones: (Array.isArray(saved.zones) ? saved.zones : []).map((z) => {
+      const area = cleanArea(z.area);
+      const riferimento = cleanLandmark(z.riferimento);
+      const base: CityZones = { city: z.city, keep: z.keep ?? [], avoid: z.avoid ?? [] };
+      if (area) base.area = area;
+      if (riferimento) base.riferimento = riferimento;
+      return base;
+    }),
+    musts: Array.isArray(saved.musts) ? saved.musts : [],
+    notes: typeof saved.notes === 'string' ? saved.notes : '',
+  };
+  const t = saved.tenant;
+  if (t && OCCUPATIONS.includes(t.occupazione)) {
+    out.tenant = {
+      occupazione: t.occupazione,
+      genere: t.genere === 'donna' || t.genere === 'uomo' ? t.genere : null,
+      animali: typeof t.animali === 'boolean' ? t.animali : null,
+      fumatore: typeof t.fumatore === 'boolean' ? t.fumatore : null,
+    };
+  }
+  if (typeof saved.askThreshold === 'number' && saved.askThreshold >= 0 && saved.askThreshold <= 100) {
+    out.askThreshold = Math.round(saved.askThreshold);
+  }
+  return out;
+}
 
 const PROFILE_FILE = 'profile.json';
 const SEARCHES_FILE = 'searches.json';
@@ -197,12 +291,7 @@ export function loadProfile(): Profile {
   if (cache) return cache;
   const saved = readJson<Partial<Profile> | null>(localConfigPath(PROFILE_FILE), null);
   if (saved && Array.isArray(saved.searches)) {
-    cache = {
-      searches: saved.searches,
-      zones: Array.isArray(saved.zones) ? saved.zones : [],
-      musts: Array.isArray(saved.musts) ? saved.musts : [],
-      notes: typeof saved.notes === 'string' ? saved.notes : '',
-    };
+    cache = normalizeProfile(saved);
     return cache;
   }
   cache = deriveFromLegacy(
@@ -275,6 +364,18 @@ export function renderCriteria(p: Profile): string {
     out.push('');
   }
 
+  if (p.tenant) out.push(...renderTenant(p.tenant), '');
+
+  const riferimenti = p.zones.filter((z) => z.riferimento);
+  if (riferimenti.length) {
+    out.push('RIFERIMENTO (la distanza da qui conta):');
+    for (const z of riferimenti) {
+      const r = z.riferimento!;
+      out.push(`- ${cityLabel(z.city)}: ${r.label} — ${r.address}`);
+    }
+    out.push('');
+  }
+
   if (p.musts.length) {
     out.push('MUST-HAVE (irrinunciabili):');
     for (const m of p.musts) out.push(`- ${m}`);
@@ -298,6 +399,24 @@ export function renderCriteria(p: Profile): string {
 
   if (p.notes.trim()) out.push(p.notes.trim(), '');
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+}
+
+const OCCUPAZIONE_TESTO: Record<Occupation, string> = {
+  lavoratore: 'lavoratore (NON studente)',
+  studente: 'studente',
+  altro: 'né studente né lavoratore dipendente',
+};
+
+/**
+ * La sezione che l'AI usa per decidere se un vincolo dell'annuncio esclude chi cerca casa.
+ * Elenca solo ciò che è stato dichiarato: un campo vuoto non deve diventare un'ipotesi.
+ */
+export function renderTenant(t: Tenant): string[] {
+  const righe = ['CHI CERCA CASA (serve a giudicare i vincoli sull\'inquilino):', `- Occupazione: ${OCCUPAZIONE_TESTO[t.occupazione]}`];
+  if (t.genere) righe.push(`- Genere: ${t.genere}`);
+  if (t.animali != null) righe.push(`- Animali: ${t.animali ? 'sì' : 'no'}`);
+  if (t.fumatore != null) righe.push(`- Fumatore: ${t.fumatore ? 'sì' : 'no'}`);
+  return righe;
 }
 
 /**

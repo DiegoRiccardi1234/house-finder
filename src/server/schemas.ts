@@ -19,6 +19,7 @@ export const SearchProfileSchema = z.object({
   maxPrice: z.number().positive(),
   minRooms: z.number().int().positive().optional(),
   maxRooms: z.number().int().positive().optional(),
+  tipo: z.enum(['monolocale', 'stanza', 'bilocale', 'trilocale', 'quattro', 'condivisa', 'qualsiasi']).optional(),
 });
 export const SearchesSchema = z.array(SearchProfileSchema);
 

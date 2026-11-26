@@ -11,7 +11,7 @@ const tests = readdirSync(new URL('../test/', import.meta.url))
 const temp = mkdtempSync(join(tmpdir(), 'housefinder-offline-suite-'));
 const data = join(temp, 'data'); mkdirSync(data);
 for (const name of ['criteria.md', 'searches.json', 'facebook.json', 'zones']) cpSync(join(root, 'data', name), join(data, name), { recursive: true });
-const env = { ...process.env, DATA_DIR: data, CODEX_HOME: join(temp, 'codex'), CLAUDE_CONFIG_DIR: join(temp, 'claude') };
+const env = { ...process.env, GEOCODE: 'off', DATA_DIR: data, CODEX_HOME: join(temp, 'codex'), CLAUDE_CONFIG_DIR: join(temp, 'claude') };
 try {
   const result = spawnSync(process.execPath, ['--import', 'tsx', '--test', ...process.argv.slice(2), ...tests],
     { cwd: root, env, stdio: 'inherit', windowsHide: true });

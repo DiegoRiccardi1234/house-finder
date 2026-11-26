@@ -7,7 +7,8 @@ import { FB_STATE_PATH } from '../src/config/facebook.js';
  *
  * PREREQUISITO: Brave completamente CHIUSO (il profilo è lockato quando è aperto).
  * Path override via env BRAVE_USER_DATA / BRAVE_EXE / BRAVE_PROFILE (default: Default).
- * Dalla UI: Config → Facebook → "Prendi la sessione da Brave" (stessa logica, `src/sources/fb-import.ts`).
+ * Dalla UI: Config → Facebook → "Prendi la sessione da un browser" (stessa logica, `src/sources/fb-import.ts`,
+ * che sa leggere anche Edge, Vivaldi, Opera e Firefox).
  *
  * Uso: npm run fb:from-brave
  */

@@ -12,6 +12,8 @@ People looking for rental housing in Italy, using their own Windows computer and
 
 Collect rental listings from configured sources, preserve an understandable archive and help the user compare homes. Keep scans manual and personal accounts, credentials and history local.
 
+Since 1.9 the only external services the interface itself contacts are OpenStreetMap: map tiles, and Nominatim for the reference point and for listing addresses (rate-limited and cached).
+
 ## Brand Personality
 
 Calm, practical, readable. Italian labels describe user actions rather than implementation files. Preserve the established sage and warm-neutral House Finder interface.

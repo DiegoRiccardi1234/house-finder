@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import type { ZoneSuggestion } from '../types';
 import { Button } from '../ui/Button';
-import { Kicker } from '../ui/Kicker';
 import { cx } from '../ui/cx';
 
 /**
@@ -28,6 +27,11 @@ export function ZoneSuggest({
 }) {
   const [sug, setSug] = useState<ZoneSuggestion | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * Cosa fa il clic su un quartiere. Prima un clic girava fra tre stati (tieni → scarta →
+   * indifferente) e nessuno lo capiva senza leggere la riga d'aiuto: ora lo scegli prima, in chiaro.
+   */
+  const [modo, setModo] = useState<'keep' | 'avoid' | 'none'>('keep');
 
   const carica = useCallback(async () => {
     setBusy(true);
@@ -52,23 +56,43 @@ export function ZoneSuggest({
 
   const senza = (list: string[], z: string): string[] => list.filter((x) => x !== z);
 
-  /** Un clic gira fra i tre stati: indifferente → tieni → scarta → indifferente. */
+  /** Applica il modo scelto; un secondo clic nello stesso modo lo toglie. */
   const ruota = (z: string): void => {
     const s = stato(z);
-    if (s === null) onChange({ keep: [...keep, z], avoid: senza(avoid, z) });
-    else if (s === 'keep') onChange({ keep: senza(keep, z), avoid: [...avoid, z] });
-    else onChange({ keep: senza(keep, z), avoid: senza(avoid, z) });
+    if (modo === 'none' || s === modo) onChange({ keep: senza(keep, z), avoid: senza(avoid, z) });
+    else if (modo === 'keep') onChange({ keep: [...keep, z], avoid: senza(avoid, z) });
+    else onChange({ keep: senza(keep, z), avoid: [...avoid, z] });
   };
+
+  const MODI = [
+    { id: 'keep' as const, label: 'Tieni', on: 'bg-ok-soft text-ok border-ok/40' },
+    { id: 'avoid' as const, label: 'Evita', on: 'bg-danger-soft text-danger border-danger/40' },
+    { id: 'none' as const, label: 'Togli la scelta', on: 'bg-surface-3 text-ink border-line' },
+  ];
 
   const zone = sug?.zones ?? [];
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <Kicker as="div">quartieri</Kicker>
-        <span className="text-xs text-faint">
-          Un clic per tenerlo, due per scartarlo, tre per lasciarlo indifferente.
-        </span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-ink-soft">Un clic su un quartiere lo segna come</span>
+        <div role="radiogroup" aria-label="Cosa fa il clic" className="inline-flex gap-1">
+          {MODI.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              role="radio"
+              aria-checked={modo === m.id}
+              onClick={() => setModo(m.id)}
+              className={cx(
+                'rounded-full border px-2.5 py-0.5 text-xs transition-colors',
+                modo === m.id ? m.on : 'border-hair text-muted hover:text-ink',
+              )}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {busy && <p className="text-xs text-muted">Cerco i quartieri…</p>}
@@ -94,7 +118,7 @@ export function ZoneSuggest({
                   onClick={() => ruota(z)}
                   aria-pressed={s !== null}
                   className={cx(
-                    'rounded-full border px-2 py-0.5 text-[0.7rem] transition-colors',
+                    'rounded-full border px-2.5 py-1 text-xs transition-colors',
                     s === 'keep' && 'border-transparent bg-ok-soft text-ok',
                     s === 'avoid' && 'border-transparent bg-danger-soft text-danger line-through',
                     s === null && 'border-hair bg-surface-3 text-muted hover:text-ink',
@@ -109,7 +133,8 @@ export function ZoneSuggest({
             {sug?.source === 'ai'
               ? 'Elenco proposto dall\'AI: correggilo pure, non è vangelo.'
               : 'Elenco incluso nell\'app.'}{' '}
-            Verde = tieni · rosso = scarta · grigio = non filtra.
+            Verde = preferito, rosso = da evitare, grigio = indifferente. Li pesa l'AI: l'area
+            disegnata sulla mappa invece scarta davvero.
           </p>
         </>
       )}

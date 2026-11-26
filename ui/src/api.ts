@@ -21,6 +21,22 @@ import type {
   JobState,
 } from './types';
 
+/** Un browser installato da cui si può (o non si può) prendere la sessione di Facebook. */
+export interface FbBrowserInfo {
+  id: string;
+  label: string;
+  available: boolean;
+  importable: boolean;
+  note?: string;
+}
+
+/** Quello che torna `/api/facebook/session` dalla 1.9: la sessione più i browser trovati. */
+export type FbSessionDetails = FbSession & {
+  browsers?: FbBrowserInfo[];
+  /** Il profilo del browser dell'app esiste: Facebook conosce già questo computer. */
+  profileReady?: boolean;
+};
+
 async function json<T>(r: Response): Promise<T> {
   if (!r.ok) {
     const body = await r.json().catch(() => ({})) as { detail?: string; error?: string };
@@ -39,6 +55,21 @@ function buildQuery(f: ListingFilters): string {
   if (f.q) p.set('q', f.q);
   if (f.arredato) p.set('arredato', f.arredato);
   if (f.soloPrivati) p.set('soloPrivati', '1');
+  const num = (k: string, v: string) => { if (v.trim() && Number.isFinite(Number(v))) p.set(k, v.trim()); };
+  num('priceMin', f.priceMin);
+  num('priceMax', f.priceMax);
+  num('sqmMin', f.sqmMin);
+  num('sqmMax', f.sqmMax);
+  if (f.rooms.length) p.set('rooms', f.rooms.join(','));
+  if (f.bagni) p.set('bagni', f.bagni);
+  if (f.piano.length) p.set('piano', f.piano.join(','));
+  if (f.ascensore) p.set('ascensore', '1');
+  if (f.aria) p.set('aria', '1');
+  if (f.autonomo) p.set('autonomo', '1');
+  if (f.days) p.set('days', f.days);
+  num('maxKm', f.maxKm);
+  if (f.inArea) p.set('inArea', '1');
+  if ((f.maxKm || f.inArea) && !f.withoutGeo) p.set('withoutGeo', '0');
   p.set('sort', f.sort);
   const s = p.toString();
   return s ? `?${s}` : '';
@@ -51,6 +82,22 @@ export const api = {
 
   listings: (f: ListingFilters, signal?: AbortSignal) =>
     fetch(`/api/listings${buildQuery(f)}`, { signal }).then((r) => json<StoredListing[]>(r)),
+
+  /** Come `listings`, più quanti annunci ha tolto il profilo (per dirlo invece di nasconderlo). */
+  listingsWithHidden: async (f: ListingFilters, signal?: AbortSignal) => {
+    const r = await fetch(`/api/listings${buildQuery(f)}`, { signal });
+    const items = await json<StoredListing[]>(r);
+    return { items, autoDismissed: Number(r.headers.get('X-Auto-Dismissed') ?? 0), total: Number(r.headers.get('X-Total-Listings') ?? items.length) };
+  },
+
+  /** Riapplica le regole del profilo all'archivio (non usa l'AI). */
+  reapplyRules: () =>
+    fetch('/api/listings/rules', { method: 'POST', headers: jsonHeaders, body: '{}' }).then((r) =>
+      json<{ ok: boolean; dismissed?: number; restored?: number; ask?: number }>(r)),
+
+  /** Cerca un luogo (via, piazza, ufficio) per il punto di riferimento. */
+  geoSearch: (q: string) =>
+    fetch(`/api/geo/search?q=${encodeURIComponent(q)}`).then((r) => json<Array<{ lat: number; lng: number; label: string }>>(r)),
 
   stats: () => fetch('/api/stats').then((r) => json<Stats>(r)),
 
@@ -106,12 +153,19 @@ export const api = {
   // --- Cose che prima si facevano solo da terminale ---
   job: (id: JobId) => fetch(`/api/jobs/${id}`).then((r) => json<JobState>(r)),
 
-  fbSession: () => fetch('/api/facebook/session').then((r) => json<FbSession>(r)),
+  fbSession: () => fetch('/api/facebook/session').then((r) => json<FbSessionDetails>(r)),
   fbLogin: () => fetch('/api/facebook/login', { method: 'POST', headers: jsonHeaders, body: '{}' }),
   fbImportBrave: () =>
     fetch('/api/facebook/import-brave', { method: 'POST', headers: jsonHeaders, body: '{}' }),
-  fbForget: () =>
-    fetch('/api/facebook/session', { method: 'DELETE' }).then((r) => json<{ ok: boolean }>(r)),
+  /** Prende la sessione da un browser installato (Brave, Edge, Vivaldi, Opera, Firefox). */
+  fbImport: (browser: string) =>
+    fetch('/api/facebook/import', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ browser }) }),
+  /** `all`: cancella anche il profilo del browser dell'app (il computer torna "sconosciuto" a Facebook). */
+  fbForget: (all = false) =>
+    fetch('/api/facebook/session', {
+      method: 'DELETE',
+      ...(all ? { headers: jsonHeaders, body: JSON.stringify({ all: true }) } : {}),
+    }).then((r) => json<{ ok: boolean; profileRemoved?: boolean }>(r)),
 
   installBrowsers: () =>
     fetch('/api/system/install-browsers', { method: 'POST', headers: jsonHeaders, body: '{}' }),

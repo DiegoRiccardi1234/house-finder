@@ -1,5 +1,9 @@
-import type { Listing } from './types.js';
-import { dedupKey } from './state.js';
+import type { GeoPoint, Listing } from './types.js';
+import { dedupKey, groupCityOf, textSignature } from './state.js';
+import { applyRules, cityOf } from './rules.js';
+import { bboxOf, geocodeAddress } from './geocode.js';
+import { loadProfile, type Profile } from '../config/profile.js';
+import { citySlugOf, labelOf } from '../config/cities.js';
 import { matches, isResidential } from './match.js';
 import { ListingStore, type StoredListing } from './store.js';
 import { scoreBatch, configured as aiConfigured, type ScoreResult } from '../ai/score.js';
@@ -27,6 +31,11 @@ export interface RunOptions {
   score?: boolean;
   /** Se descrivere le foto (stadio vision) prima del reasoning. Default: `visionConfigured()`. */
   vision?: boolean;
+  /**
+   * Come trovare la posizione di un indirizzo. Default: OpenStreetMap (Nominatim).
+   * `false` = non cercare (test, prove offline).
+   */
+  geocode?: false | ((address: string, city: string, bbox: [number, number, number, number] | null) => Promise<GeoPoint | null>);
 }
 
 export interface RunResult {
@@ -100,7 +109,12 @@ async function cachePhotos(
  * I già valutati conservano l'AI; tutti preservano lo `status` scelto dall'utente.
  * NON salva: salva l'orchestratore (`runPipeline`) una volta sola.
  */
-export async function ingest(listings: Listing[], channel: ChannelId, opts: RunOptions): Promise<RunResult> {
+export async function ingest(
+  listings: Listing[],
+  channel: ChannelId,
+  opts: RunOptions,
+  hints: { cityByKey?: Map<string, string> } = {},
+): Promise<RunResult> {
   const log = resolveLog(opts);
   const doScore = resolveScore(opts);
   const store = opts.store;
@@ -113,7 +127,9 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
 
   const byKey = new Map<string, Listing>();
   for (const l of residential) if (!byKey.has(dedupKey(l))) byKey.set(dedupKey(l), l);
-  const unique = [...byKey.values()];
+  const { kept, merged } = mergeRepostedFb([...byKey.values()], store);
+  if (merged) log(`[${channel}] ${merged} post identici in altri gruppi: uniti all'annuncio già trovato`);
+  const unique = kept;
   const freshKeys = new Set(unique.filter((l) => store.isNew(l)).map(dedupKey));
   const scoreTargets = unique.filter((l) => freshKeys.has(dedupKey(l)) || !store.get(dedupKey(l))?.ai);
 
@@ -139,7 +155,8 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
     // Stadio 2 (reasoning): la descrizione foto entra nel `desc` così il voto ne tiene conto.
     const enriched = scoreTargets.map((l) => {
       const v = visions.get(dedupKey(l));
-      return v ? { ...l, desc: [l.desc, `FOTO: ${v}`].filter(Boolean).join('\n') } : l;
+      // FOTO prima del testo: la descrizione si taglia a 1500 caratteri, e in coda andava persa.
+      return v ? { ...l, desc: [`FOTO: ${v}`, l.desc].filter(Boolean).join('\n') } : l;
     });
     try {
       log(`[${channel}] valuto ${enriched.length} annunci con l'AI…`);
@@ -166,6 +183,8 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
     // Copia locale se c'è, altrimenti l'URL remoto: meglio un hotlink che una card vuota.
     const local = photoOf.get(key);
     const photo = local ?? l.thumb ?? null;
+    const city = hints.cityByKey?.get(key) ?? citySlugOf(groupCityOf(l)) ?? citySlugOf(res?.fields?.citta) ?? undefined;
+    const geo = l.geo ?? undefined; // la posizione del portale vince sulla ricerca dell'indirizzo
     const rec = isFresh
       ? store.upsert(l, now, {
           channel,
@@ -174,18 +193,110 @@ export async function ingest(listings: Listing[], channel: ChannelId, opts: RunO
           visionSummary: visions.get(key) ?? null,
           photos: photo ? [photo] : [],
           notified: false,
+          ...(city ? { city } : {}),
+          ...(geo ? { geo } : {}),
         })
       : // già-visto: recupera solo l'AI mancante; preserva status/channel/notified.
         // `photos` solo se abbiamo appena messo in cache la foto (self-heal degli URL scaduti).
         store.upsert(l, now, {
           ...(local ? { photos: [local] } : {}),
           ...(res ? { ai: res.ai, fields: res.fields, visionSummary: visions.get(key) } : {}),
+          ...(city ? { city } : {}),
+          ...(geo ? { geo } : {}),
         });
     if (isFresh) newRecords.push(rec);
   }
 
+  // Posizione e regole dopo il voto: servono l'indirizzo estratto e il conflitto inquilino.
+  const profile = loadProfile();
+  await locateListings(store, profile, log, channel, opts.geocode);
+  const rules = applyRules(store.all(), profile, now);
+  if (rules.dismissed || rules.restored || rules.ask) {
+    log(`[${channel}] regole del profilo: ${rules.dismissed} scartati in automatico · ${rules.restored} rimessi fra i nuovi · ${rules.ask} da chiedere`);
+  }
+
   return { channel, collected: listings.length, unique: unique.length, fresh: freshKeys.size, newRecords, errors, outcome: errors.length ? 'partial' : 'succeeded' };
 }
+
+/**
+ * Lo stesso post pubblicato in più gruppi Facebook diventa un annuncio solo.
+ *
+ * Il doppione non arriva a foto e AI (costano), e il suo indirizzo finisce in `alsoIn`
+ * dell'annuncio tenuto, così dalla card si vede dove altro è stato pubblicato.
+ */
+export function mergeRepostedFb(listings: Listing[], store: ListingStore): { kept: Listing[]; merged: number } {
+  const isFb = (source: string) => source === 'fb-group' || source === 'fb-marketplace';
+  const owner = new Map<string, string>(); // firma → dedupKey dell'annuncio tenuto
+  for (const rec of store.all()) {
+    if (!isFb(rec.listing.source)) continue;
+    const sig = textSignature(rec.listing);
+    if (sig && !owner.has(sig)) owner.set(sig, rec.key);
+  }
+  const kept: Listing[] = [];
+  let merged = 0;
+  for (const l of listings) {
+    const key = dedupKey(l);
+    const sig = isFb(l.source) ? textSignature(l) : null;
+    const first = sig ? owner.get(sig) : undefined;
+    // Già in archivio con la sua chiave: si tiene com'è (è lui il "primo" per quella firma).
+    if (!sig || !first || first === key || store.get(key)) {
+      if (sig && !first) owner.set(sig, key);
+      kept.push(l);
+      continue;
+    }
+    merged++;
+    const target = store.get(first);
+    if (target && target.listing.url !== l.url) {
+      target.alsoIn = Array.from(new Set([...(target.alsoIn ?? []), l.url])).slice(0, 10);
+    }
+  }
+  return { kept, merged };
+}
+
+/** Quanti indirizzi cercare al massimo in una scansione: il resto alla prossima (1 al secondo). */
+const GEOCODE_PER_RUN = 60;
+
+/**
+ * Trova la posizione degli annunci che ancora non ce l'hanno, a partire dall'indirizzo che l'AI
+ * ha letto nel testo. Best-effort: un fallimento lascia l'annuncio "posizione da verificare".
+ */
+export async function locateListings(
+  store: ListingStore,
+  profile: Profile,
+  log: LogFn,
+  channel: string,
+  geocode: RunOptions['geocode'] = defaultGeocode,
+): Promise<number> {
+  if (geocode === false) return 0;
+  const targets = store
+    .all()
+    .filter((r) => !r.geo && r.fields?.indirizzo && r.status !== 'dismissed')
+    .slice(0, GEOCODE_PER_RUN);
+  let found = 0;
+  for (const rec of targets) {
+    const city = cityOf(rec, profile);
+    const zone = city ? profile.zones.find((z) => z.city === city) : undefined;
+    const bbox = zone?.area?.polygon ? bboxOf(zone.area.polygon) : zone?.riferimento ? bboxOf(around(zone.riferimento), 0) : null;
+    const point = await geocode(rec.fields!.indirizzo!, city ? labelOf(city) : (rec.fields?.citta ?? ''), bbox);
+    if (point) {
+      rec.geo = point;
+      found++;
+    }
+  }
+  if (targets.length) log(`[${channel}] posizione trovata per ${found}/${targets.length} indirizzi`);
+  return found;
+}
+
+/** Un quadrato di ~15 km attorno al riferimento, quando non c'è un'area disegnata. */
+function around(p: { lat: number; lng: number }): [number, number][] {
+  const d = 15 / 111;
+  const dl = 15 / (111 * Math.cos((p.lat * Math.PI) / 180));
+  return [[p.lat - d, p.lng - dl], [p.lat + d, p.lng - dl], [p.lat + d, p.lng + dl], [p.lat - d, p.lng + dl]];
+}
+
+// GEOCODE=off spegne la ricerca degli indirizzi (test e prove offline: niente rete).
+const defaultGeocode = (address: string, city: string, bbox: [number, number, number, number] | null) =>
+  process.env.GEOCODE === 'off' ? Promise.resolve(null) : geocodeAddress(address, city, bbox);
 
 /** Risultato dell'email + commit differito: le mail si marcano lette SOLO dopo un save riuscito. */
 interface EmailRun {
@@ -281,6 +392,8 @@ export async function runScrapers(channels: ChannelId[], opts: RunOptions): Prom
 
   const searches = loadSearches();
   const collectedBy = new Map<ChannelId, Listing[]>();
+  // La città della ricerca che ha trovato l'annuncio: è l'informazione più affidabile che c'è.
+  const cityByKey = new Map<string, string>();
   const errorsBy = new Map<ChannelId, string[]>();
   const succeededBy = new Map<ChannelId, number>();
   for (const s of active) collectedBy.set(s.name as ChannelId, []);
@@ -296,7 +409,11 @@ export async function runScrapers(channels: ChannelId[], opts: RunOptions): Prom
             const listings = await source.fetch(profile, ctx);
             succeededBy.set(ch, (succeededBy.get(ch) ?? 0) + 1);
             const bucket = collectedBy.get(ch)!;
-            for (const l of listings) if (matches(l, profile)) bucket.push(l);
+            for (const l of listings) {
+              if (!matches(l, profile)) continue;
+              bucket.push(l);
+              if (!cityByKey.has(dedupKey(l))) cityByKey.set(dedupKey(l), profile.city);
+            }
           } catch (e) {
             const msg = `${profile.id}: ${(e as Error).message}`;
             log(`[${ch}] ERRORE ${msg}`);
@@ -316,7 +433,7 @@ export async function runScrapers(channels: ChannelId[], opts: RunOptions): Prom
   const results: RunResult[] = [];
   for (const source of active) {
     const ch = source.name as ChannelId;
-    const r = await ingest(collectedBy.get(ch) ?? [], ch, opts);
+    const r = await ingest(collectedBy.get(ch) ?? [], ch, opts, { cityByKey });
     r.errors.push(...(errorsBy.get(ch) ?? []));
     r.outcome = resultOutcome(r);
     if (r.outcome === 'failed' && succeededBy.get(ch)) r.outcome = 'partial';
@@ -336,8 +453,8 @@ export async function runFacebook(opts: RunOptions): Promise<RunResult> {
     return empty('facebook', [`sessione assente: ${FB_STATE_PATH}`]);
   }
 
-  const { launchBrowser, newContext } = await import('./browser.js');
-  const { isLoggedIn } = await import('../sources/fb-session.js');
+  const { launchBrowser, launchPersistentProfile, newContext } = await import('./browser.js');
+  const { isLoggedIn, fbProfileDir, claimProfile, alignProfileWithState, saveFbState } = await import('../sources/fb-session.js');
   const { scrapeGroups } = await import('../sources/facebook-groups.js');
   const { scrapeMarketplace } = await import('../sources/facebook-marketplace.js');
   const { groups, market } = loadFbConfig();
@@ -348,31 +465,78 @@ export async function runFacebook(opts: RunOptions): Promise<RunResult> {
     errors.push(message);
     log(`[facebook] ${message}`);
   };
-  // Stesso browser del login (Chrome/Edge installato): la sessione resta legata a un dispositivo noto.
-  const browser = await launchBrowser({ preferInstalled: true });
+
+  // Con il profilo dell'app (creato da "Accedi da qui") si scansiona da lì: è il dispositivo che
+  // Facebook conosce, e i cookie che Facebook rinnova durante la visita restano nel profilo invece
+  // di andare persi a fine scansione. Senza profilo, tutto come prima: browser + file di sessione.
+  type Ctx = Awaited<ReturnType<typeof newContext>>;
+  let ctx: Ctx | null = null;
+  let closeAll: () => Promise<void> = async () => {};
+  let persistent = false;
+  let release: (() => void) | null = null;
+  const profileDir = fbProfileDir();
+  if (existsSync(profileDir)) {
+    release = claimProfile(profileDir);
+    if (!release) {
+      log('[facebook] il profilo del browser dell\'app è occupato da un accesso in corso: uso la sessione salvata.');
+    } else {
+      try {
+        const opened = await launchPersistentProfile(profileDir, { headless: process.env.HEADLESS === '1' });
+        const pctx = opened.ctx;
+        ctx = pctx;
+        persistent = true;
+        closeAll = () => pctx.close();
+      } catch (e) {
+        release();
+        release = null;
+        log(`[facebook] non riesco ad aprire il profilo del browser dell'app (${(e as Error).message.split('\n')[0]}): uso la sessione salvata.`);
+      }
+    }
+  }
+
   try {
-    const ctx = await newContext(browser, { storageState: FB_STATE_PATH });
+    if (!ctx) {
+      // Stesso browser del login (Chrome/Edge installato): la sessione resta legata a un dispositivo noto.
+      const browser = await launchBrowser({ preferInstalled: true });
+      try {
+        const sctx = await newContext(browser, { storageState: FB_STATE_PATH });
+        ctx = sctx;
+        closeAll = async () => {
+          await sctx.close().catch(() => {});
+          await browser.close();
+        };
+      } catch (e) {
+        await browser.close().catch(() => {});
+        throw e;
+      }
+    }
+    // Il file dice quale account usare (può venire da un altro browser): il profilo si adegua.
+    if (persistent && (await alignProfileWithState(ctx, FB_STATE_PATH))) {
+      log('[facebook] nel profilo dell\'app ho messo la sessione salvata (account diverso o assente).');
+    }
+    if (!(await isLoggedIn(ctx))) {
+      log('[facebook] sessione scaduta/non valida. Rilancia: npm run fb:from-brave (o fb:login)');
+      return empty('facebook', ['sessione scaduta']);
+    }
+    // Gruppi e Marketplace isolati: uno che fallisce non fa saltare l'altro.
     try {
-      if (!(await isLoggedIn(ctx))) {
-        log('[facebook] sessione scaduta/non valida. Rilancia: npm run fb:from-brave (o fb:login)');
-        return empty('facebook', ['sessione scaduta']);
-      }
-      // Gruppi e Marketplace isolati: uno che fallisce non fa saltare l'altro.
-      try {
-        collected.push(...(await scrapeGroups(ctx, groups, FB_MAX_SCROLL, onError)));
-      } catch (e) {
-        onError(`gruppi falliti: ${(e as Error).message}`);
-      }
-      try {
-        collected.push(...(await scrapeMarketplace(ctx, market, FB_MAX_SCROLL, onError)));
-      } catch (e) {
-        onError(`marketplace fallito: ${(e as Error).message}`);
-      }
-    } finally {
-      await ctx.close();
+      collected.push(...(await scrapeGroups(ctx, groups, FB_MAX_SCROLL, onError)));
+    } catch (e) {
+      onError(`gruppi falliti: ${(e as Error).message}`);
+    }
+    try {
+      collected.push(...(await scrapeMarketplace(ctx, market, FB_MAX_SCROLL, onError)));
+    } catch (e) {
+      onError(`marketplace fallito: ${(e as Error).message}`);
+    }
+    // Riporta nel file i cookie rinnovati, ma solo se si è ancora dentro: un profilo uscito a metà
+    // non deve sovrascrivere una sessione buona.
+    if (persistent && (await isLoggedIn(ctx).catch(() => false))) {
+      await saveFbState(ctx, FB_STATE_PATH).catch((e) => log(`[facebook] sessione non riesportata: ${(e as Error).message}`));
     }
   } finally {
-    await browser.close();
+    await closeAll();
+    release?.();
   }
   const result = await ingest(collected, 'facebook', opts);
   result.errors.push(...errors);

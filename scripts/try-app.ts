@@ -11,6 +11,8 @@ import { chromium, type Page } from 'playwright';
 import type { RunSummary } from '../src/core/pipeline.js';
 import { ChatService } from '../src/chat/service.js';
 
+const EMPTY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+
 async function main(): Promise<void> {
   const temp = await mkdtemp(join(tmpdir(), 'hf-app-smoke-'));
   const stateDir = join(temp, 'state');
@@ -85,6 +87,9 @@ async function main(): Promise<void> {
     await page.getByText(text, { exact: typeof text === 'string' }).filter({ visible: true }).first().waitFor();
   };
   const nav = (page: Page, name: string) => page.getByRole('tab', { name, exact: true }).click();
+  // Le sezioni di Config sono una barra laterale: il nome del pulsante comprende anche lo stato.
+  const section = (page: Page, name: string) => page.getByRole('navigation', { name: 'Sezioni delle impostazioni' })
+    .getByRole('button', { name: new RegExp(`^${name}`) }).click();
   const addRecords = async () => {
     const now = '2026-10-01T12:00:00Z';
     store.upsert({ source: 'immobiliare', id: 'smoke-1', url: 'https://example.invalid/1',
@@ -101,6 +106,8 @@ async function main(): Promise<void> {
       const url = new URL(route.request().url());
       if (url.origin === base || ['data:', 'blob:'].includes(url.protocol)) return route.continue();
       externalAttempts.push(url.hostname);
+      // Tile della mappa: un PNG trasparente finto, così la mappa si monta senza rete e senza errori.
+      if (url.hostname === 'tile.openstreetmap.org') return route.fulfill({ status: 200, contentType: 'image/png', body: EMPTY_PNG });
       return route.abort('blockedbyclient');
     });
     const watch = (page: Page) => {
@@ -121,7 +128,7 @@ async function main(): Promise<void> {
     const page = await context.newPage(); watch(page);
     await page.goto(base);
     await visible(page, 'Non hai ancora detto cosa cerchi');
-    await page.getByRole('heading', { name: 'Città, tipo di casa e budget' }).waitFor();
+    await page.getByRole('heading', { name: 'Cosa cerchi', exact: true }).waitFor();
     await nav(page, 'Cerca');
     assert.equal(await page.getByRole('button', { name: 'Cerca adesso', exact: true }).isDisabled(), true);
     checks.push('Primo avvio vuoto: guida alla ricerca e scansione disabilitata');
@@ -132,11 +139,13 @@ async function main(): Promise<void> {
     await page.reload();
     await page.getByRole('link', { name: 'Bilocale fixture Torino', exact: true }).waitFor();
     await wait(async () => !(await page.getByRole('button', { name: 'Preferito', exact: true }).first().isDisabled()), 'snapshot SSE iniziale');
-    await page.getByRole('button', { name: 'Filtra', exact: true }).click();
     await page.getByLabel('Cerca', { exact: true }).fill('Torino');
     await wait(async () => await page.getByRole('button', { name: 'Preferito', exact: true }).count() === 1, 'filtro testo');
     await page.getByRole('button', { name: 'Preferito', exact: true }).click();
     await wait(async () => store.get('immobiliare:smoke-1')?.status === 'favorite', 'stato preferito persistito');
+    // «Da vedere» (il predefinito) nasconde gli scartati: per riprendere un annuncio dopo «Scarta»
+    // serve la vista con tutti.
+    await page.getByLabel('Stato', { exact: true }).selectOption('');
     for (const [label, status] of [['Contattato', 'contacted'], ['Scarta', 'dismissed'], ['Preferito', 'favorite']] as const) {
       await page.getByRole('button', { name: label, exact: true }).click();
       await wait(async () => store.get('immobiliare:smoke-1')?.status === status, `stato ${status} persistito`);
@@ -146,11 +155,16 @@ async function main(): Promise<void> {
     await wait(async () => await page.getByRole('button', { name: 'Preferito', exact: true }).count() === 1, 'filtro preferiti');
     await page.getByLabel('Stato', { exact: true }).selectOption('');
     await wait(async () => await page.getByRole('button', { name: 'Preferito', exact: true }).count() === 2, 'ripristino filtri');
-    checks.push('Dashboard: filtri testo/stato e preferito/contattato/scartato persistiti');
+    // Fixture: bilocale a 600 €, garage a 100 €. Da 300 € in su resta solo il bilocale.
+    await page.getByLabel('Prezzo minimo', { exact: true }).fill('300');
+    await wait(async () => await page.getByRole('button', { name: 'Preferito', exact: true }).count() === 1, 'filtro prezzo minimo');
+    await page.getByLabel('Prezzo minimo', { exact: true }).fill('');
+    await wait(async () => await page.getByRole('button', { name: 'Preferito', exact: true }).count() === 2, 'filtro prezzo tolto');
+    checks.push('Dashboard: filtri testo/stato/prezzo e preferito/contattato/scartato persistiti');
     await nav(page, 'Profilo');
-    await visible(page, 'annunci trovati');
-    await nav(page, 'Config'); await nav(page, 'App');
-    await page.getByRole('button', { name: 'Ripulisci rumore', exact: true }).click();
+    await visible(page, /annunci trovati/i);
+    await nav(page, 'Config'); await section(page, 'App e archivio');
+    await page.getByRole('button', { name: 'Ripulisci il rumore', exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Ripulisci', exact: true }).click();
     await visible(page, 'Ripulito: 1 rimossi, restano 1.');
     await nav(page, 'Annunci');
@@ -158,7 +172,7 @@ async function main(): Promise<void> {
     await nav(page, 'Profilo');
     await visible(page, 'su 1 annunci con prezzo');
     await nav(page, 'Config');
-    await page.getByRole('button', { name: 'Svuota archivio', exact: true }).click();
+    await page.getByRole('button', { name: "Svuota l'archivio", exact: true }).click();
     await page.getByRole('dialog').getByRole('button', { name: 'Svuota', exact: true }).click();
     await visible(page, 'Archivio svuotato: 1 annunci rimossi.');
     await nav(page, 'Annunci'); await visible(page, "Non c'è ancora nessun annuncio");
@@ -211,7 +225,7 @@ async function main(): Promise<void> {
     } }));
     await updatePage.route('**/api/update/lock', (route) => { clearedStale++; return route.fulfill({ json: { ok: true } }); });
     await updatePage.clock.install();
-    await updatePage.goto(base); await nav(updatePage, 'Config'); await nav(updatePage, 'App');
+    await updatePage.goto(base); await nav(updatePage, 'Config'); await section(updatePage, 'App e archivio');
     await visible(updatePage, 'Download fixture lento');
     await updatePage.clock.fastForward(300_001);
     assert.equal(await updatePage.getByRole('button', { name: 'Sblocca e riprova', exact: true }).count(), 0);
@@ -224,16 +238,15 @@ async function main(): Promise<void> {
     await updatePage.close();
     checks.push('Updater UI: oltre cinque minuti resta occupato; sblocco disponibile solo con lock stale');
     await nav(page, 'Config');
-    await nav(page, 'Connessioni AI');
-    await page.getByRole('button', { name: 'Aggiungi connessione', exact: true }).click();
+    await section(page, 'Intelligenza artificiale');
+    await page.getByRole('button', { name: 'Aggiungi una connessione', exact: true }).click();
     await page.getByLabel('Nome', { exact: true }).fill('Codex fixture');
     await page.getByLabel('Modello', { exact: true }).fill('fixture-model');
-    await page.getByRole('button', { name: 'Salva connessioni e task', exact: true }).click();
-    await visible(page, 'Connessioni e task salvati.');
-    await page.getByRole('tab', { name: 'Task', exact: true }).click();
-    await page.getByLabel('Chat sugli annunci', { exact: true }).selectOption({ label: 'Codex fixture' });
-    await page.getByRole('button', { name: 'Salva connessioni e task', exact: true }).click();
-    await visible(page, 'Connessioni e task salvati.');
+    await page.getByRole('button', { name: 'Salva le connessioni', exact: true }).click();
+    await visible(page, 'Salvato.');
+    await page.getByLabel('Connessione per Chat sugli annunci', { exact: true }).selectOption({ label: 'Codex fixture' });
+    await page.getByRole('button', { name: 'Salva le connessioni', exact: true }).click();
+    await visible(page, 'Salvato.');
     await nav(page, 'Chat');
     await page.getByRole('checkbox', { name: /Bilocale fixture Torino/ }).check();
     await page.getByLabel('La tua domanda', { exact: true }).fill('Confronta questo annuncio con il budget.');
@@ -255,7 +268,10 @@ async function main(): Promise<void> {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'niente overflow mobile');
     await page.screenshot({ path: join(temp, 'mobile.png'), fullPage: true, animations: 'disabled' });
     checks.push('Desktop 1440 e mobile 390: layout senza overflow');
-    assert.deepEqual(externalAttempts, [], 'nessuna richiesta esterna');
+    // Dalla 1.9 le uniche richieste esterne volute sono OpenStreetMap: tile della mappa e ricerca
+    // degli indirizzi (centro città, punto di riferimento). Qui sono bloccate.
+    const osm = new Set(['tile.openstreetmap.org', 'nominatim.openstreetmap.org']);
+    assert.deepEqual(externalAttempts.filter((h) => !osm.has(h)), [], 'nessuna richiesta esterna');
     assert.deepEqual(errors, [], 'nessun errore JS/console/rete inatteso');
     const saved = JSON.parse(await readFile(process.env.LISTINGS_PATH!, 'utf8')) as Record<string, unknown>;
     assert.equal(Object.keys(saved).length, 2);

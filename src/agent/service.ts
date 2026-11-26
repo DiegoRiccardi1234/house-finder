@@ -22,6 +22,30 @@ export const ProfileProposalSchema = z.object({
   musts: z.array(z.string().min(1).max(500)).max(100),
   notes: z.string().max(30_000),
 }).strict();
+/**
+ * Una proposta dell'agente copre ricerche, zone, irrinunciabili e note. Tutto il resto del
+ * profilo (chi cerca casa, soglia, area disegnata e riferimento) non lo può vedere né scrivere:
+ * si conserva quello che c'è, altrimenti confermare una proposta lo cancellerebbe.
+ */
+export function mergeProposal(current: Profile, proposal: z.infer<typeof ProfileProposalSchema>): Profile {
+  const out: Profile = {
+    ...proposal,
+    zones: proposal.zones.map((z) => {
+      const prev = current.zones.find((c) => c.city === z.city);
+      return { ...z, ...(prev?.area ? { area: prev.area } : {}), ...(prev?.riferimento ? { riferimento: prev.riferimento } : {}) };
+    }),
+  };
+  if (current.tenant) out.tenant = current.tenant;
+  if (current.askThreshold != null) out.askThreshold = current.askThreshold;
+  // Una città che la proposta non nomina perde le zone, ma non l'area disegnata a mano.
+  for (const prev of current.zones) {
+    if ((prev.area || prev.riferimento) && !out.zones.some((z) => z.city === prev.city)) {
+      out.zones.push({ city: prev.city, keep: [], avoid: [], ...(prev.area ? { area: prev.area } : {}), ...(prev.riferimento ? { riferimento: prev.riferimento } : {}) });
+    }
+  }
+  return out;
+}
+
 export const ScanProposalSchema = z.object({
   channels: z.array(z.enum(['email', 'subito', 'immobiliare', 'idealista', 'facebook'])).min(1).max(5)
     .refine((items) => new Set(items).size === items.length),
@@ -222,7 +246,7 @@ export class AgentService {
       this.applying = row.kind === 'profile';
       try {
         this.assertIdle();
-        if (row.kind === 'profile') { await this.saveProfile(ProfileProposalSchema.parse(row.payload)); row.result = { saved: true }; }
+        if (row.kind === 'profile') { await this.saveProfile(mergeProposal(this.getProfile(), ProfileProposalSchema.parse(row.payload))); row.result = { saved: true }; }
         else { const scan = ScanProposalSchema.parse(row.payload); row.result = { runId: await this.deps.startScan(scan.channels) }; }
         row.state = 'confirmed';
       } catch (error) {

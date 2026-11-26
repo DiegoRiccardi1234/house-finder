@@ -31,6 +31,8 @@ export interface Listing {
   zone?: string | null;
   thumb?: string | null; // url immagine anteprima
   desc?: string | null; // testo libero (es. post Facebook) — dato in pasto al giudizio AI
+  /** Posizione dichiarata dal portale stesso, se c'è (Immobiliare sempre, Subito a volte). */
+  geo?: GeoPoint | null;
 }
 
 /**
@@ -105,4 +107,24 @@ export interface ListingFields {
   vincoli_inquilino: string[]; // "no studenti", "solo referenziati", "no animali"…
   contatto: ContactType | null;
   riassunto: string | null;
+  /** Via + civico o incrocio, SOLO se scritto nell'annuncio: serve a trovare la posizione. */
+  indirizzo?: string | null;
+  /**
+   * Il vincolo sull'inquilino esclude chi cerca casa? Giudicato dall'AI contro «Chi cerca casa».
+   * 'si' = escluso in modo esplicito ("solo studenti" e tu lavori); 'forse' = ambiguo; 'no' = nessun conflitto.
+   */
+  conflitto_inquilino?: TenantConflict | null;
+  motivo_conflitto?: string | null;
+}
+
+export type TenantConflict = 'no' | 'si' | 'forse';
+
+/** Dove sta un annuncio, e quanto ne siamo sicuri. */
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+  /** address = civico/edificio · street = via · zone = quartiere o posizione approssimata dal portale */
+  precision: 'address' | 'street' | 'zone';
+  /** Da dove arriva: il portale stesso o la ricerca dell'indirizzo. */
+  source: 'portal' | 'geocode';
 }

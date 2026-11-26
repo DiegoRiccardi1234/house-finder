@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mapResult, parseNextData, type ImmResult } from '../src/sources/immobiliare.js';
+import { immGeo, mapResult, parseNextData, type ImmResult } from '../src/sources/immobiliare.js';
+
+test('immobiliare immGeo: via + marker = via; senza via = quartiere; coordinate assenti o 0,0 = nessuna', () => {
+  assert.deepEqual(immGeo({ latitude: 45.0451, longitude: 7.6512, address: 'via Tripoli', marker: 'marker' }),
+    { lat: 45.0451, lng: 7.6512, precision: 'street', source: 'portal' });
+  assert.equal(immGeo({ latitude: 45.0451, longitude: 7.6512 })?.precision, 'zone');
+  assert.equal(immGeo({ latitude: 45.0451, longitude: 7.6512, address: 'via Tripoli', marker: 'area' })?.precision, 'zone');
+  assert.equal(immGeo({ latitude: 0, longitude: 0, address: 'x' }), null);
+  assert.equal(immGeo({ address: 'via Tripoli' }), null);
+  assert.equal(immGeo(undefined), null);
+});
 
 function result(over: Partial<ImmResult['realEstate']> = {}): ImmResult {
   return {

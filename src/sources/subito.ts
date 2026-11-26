@@ -1,4 +1,4 @@
-import type { Listing, Source } from '../core/types.js';
+import type { GeoPoint, Listing, Source } from '../core/types.js';
 import { SUBITO_IMG_RULE } from '../core/img-fetch.js';
 import { gotoResilient, assertNotBlocked } from './page-utils.js';
 import { readNextData } from './nextdata.js';
@@ -17,7 +17,7 @@ export interface SubitoItem {
   body?: string; // descrizione libera completa
   urls?: { default?: string };
   features?: Record<string, { values?: SubitoFeatureValue[] }>;
-  geo?: { town?: { value?: string }; city?: { value?: string } };
+  geo?: { town?: { value?: string }; city?: { value?: string }; map?: { latitude?: string; longitude?: string; zoom?: string } };
   images?: Array<{ cdnBaseUrl?: string }>;
 }
 
@@ -81,7 +81,22 @@ export function mapItem(it: SubitoItem): Listing | null {
     zone: it.geo?.town?.value ?? it.geo?.city?.value ?? null,
     thumb: subitoThumb(it),
     desc: buildDesc(it),
+    geo: subitoGeo(it),
   };
+}
+
+/**
+ * Coordinate di Subito. Verificato dal vivo (26/11): la maggior parte degli annunci non le ha; con
+ * `zoom` 13 il punto è il centro della città (inutile, e pericoloso: cadrebbe sempre nello stesso
+ * posto), con zoom 18 è l'indirizzo. Si tiene solo da zoom 16 in su.
+ */
+export function subitoGeo(it: SubitoItem): GeoPoint | null {
+  const m = it.geo?.map;
+  const lat = Number(m?.latitude);
+  const lng = Number(m?.longitude);
+  const zoom = Number(m?.zoom);
+  if (!m || !Number.isFinite(lat) || !Number.isFinite(lng) || !(zoom >= 16)) return null;
+  return { lat, lng, precision: 'street', source: 'portal' };
 }
 
 interface SubitoNextData {
@@ -110,6 +125,9 @@ export const subito: Source = {
       q.set('ps', '0');
       q.set('pe', String(p.maxPrice));
     }
+    // Verificato dal vivo (26/11): rs/re = locali minimi/massimi (Torino ≤700: da 356 a 201 annunci).
+    if (p.minRooms) q.set('rs', String(p.minRooms));
+    if (p.maxRooms) q.set('re', String(p.maxRooms));
     return `${base}?${q.toString()}`;
   },
 

@@ -1,7 +1,6 @@
 import { useId } from 'react';
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
 import { cx } from './cx.js';
-import { Kicker } from './Kicker.js';
 
 const CONTROL =
   'w-full rounded-[var(--radius-btn)] border border-line bg-surface-hi px-2.5 py-1.5 text-sm text-ink ' +
@@ -29,8 +28,10 @@ export function Field({
   const descId = hint || error ? `${id}-desc` : undefined;
   return (
     <div className={cx('flex flex-col gap-1', className)}>
-      <label htmlFor={id}>
-        <Kicker>{label}</Kicker>
+      {/* In chiaro, non in maiuscoletto: un modulo si legge etichetta per etichetta, e otto
+          etichette spaziate in maiuscolo si leggevano come un'unica riga di rumore. */}
+      <label htmlFor={id} className="text-xs font-medium text-ink-soft">
+        {label}
       </label>
       {children({ id, 'aria-describedby': descId, 'aria-invalid': error ? true : undefined })}
       {(hint || error) && (

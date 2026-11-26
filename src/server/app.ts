@@ -2,7 +2,7 @@ import express, { type Express, type Request, type Response } from 'express';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { ListingStore, StoredListing } from '../core/store.js';
+import type { ListingStore } from '../core/store.js';
 import { writeFileAtomic } from '../core/atomic.js';
 import { runPipeline as realRunPipeline, type ChannelId, type LogFn, type RunSummary } from '../core/pipeline.js';
 import { configured as aiConfigured } from '../ai/score.js';
@@ -23,7 +23,10 @@ import { createAssistRouter } from './assistRoutes.js';
 import { JobManager } from './jobs.js';
 import { browsersInstalled } from './browsers.js';
 import { mailConfigured } from '../config/mail.js';
-import { profileConfigured, invalidateProfile } from '../config/profile.js';
+import { profileConfigured, invalidateProfile, loadProfile } from '../config/profile.js';
+import { applyRules } from '../core/rules.js';
+import { searchPlaces } from '../core/geocode.js';
+import { queryListings } from './listingQuery.js';
 import { APP_VERSION } from '../version.js';
 import { readLock as readUpdateLock } from '../update/lock.js';
 import { createAgentRouter } from './agentRoutes.js';
@@ -78,45 +81,12 @@ function imapConfigured(): boolean {
   return mailConfigured();
 }
 
-/** Filtra e ordina i record per la GET /api/listings. */
-function queryListings(all: StoredListing[], q: Request['query']): StoredListing[] {
-  const channel = typeof q.channel === 'string' ? q.channel : '';
-  const status = typeof q.status === 'string' ? q.status : '';
-  const city = typeof q.city === 'string' ? q.city.toLowerCase() : '';
-  const text = typeof q.q === 'string' ? q.q.toLowerCase() : '';
-  const arredato = typeof q.arredato === 'string' ? q.arredato : '';
-  const soloPrivati = q.soloPrivati === '1';
-  const minScore = q.minScore ? Number(q.minScore) : 0;
-  const sort = typeof q.sort === 'string' ? q.sort : 'score';
-
-  let out = all.filter((r) => {
-    // Mantiene sia il canale corrente sia quelli storici, senza migrare l'archivio.
-    if (channel && !(channel === 'facebook'
-      ? ['facebook', 'fb-group', 'fb-marketplace'].includes(r.channel)
-      : r.channel === channel)) {
-      return false;
-    }
-    if (status && r.status !== status) return false;
-    if (minScore > 0 && (r.ai == null || r.ai.score < minScore)) return false;
-    if (arredato && r.fields?.arredato !== arredato) return false;
-    if (soloPrivati && r.fields?.contatto === 'agenzia') return false;
-    if (city) {
-      const hay = `${r.listing.zone ?? ''} ${r.listing.title} ${r.listing.url}`.toLowerCase();
-      if (!hay.includes(city)) return false;
-    }
-    if (text) {
-      const hay = `${r.listing.title} ${r.listing.zone ?? ''} ${r.listing.desc ?? ''}`.toLowerCase();
-      if (!hay.includes(text)) return false;
-    }
+function requireJsonEarly(req: Request, res: Response): boolean {
+  if (!req.is('application/json')) {
+    res.status(415).json({ error: 'Content-Type application/json richiesto' });
     return true;
-  });
-
-  const byScore = (a: StoredListing, b: StoredListing) => (b.ai?.score ?? -1) - (a.ai?.score ?? -1);
-  const byRecent = (a: StoredListing, b: StoredListing) => b.firstSeen.localeCompare(a.firstSeen);
-  const byPrice = (a: StoredListing, b: StoredListing) =>
-    (a.listing.price ?? Infinity) - (b.listing.price ?? Infinity);
-  out = out.sort(sort === 'recent' ? byRecent : sort === 'price' ? byPrice : byScore);
-  return out;
+  }
+  return false;
 }
 
 async function readJson<T>(path: string, fallback: T): Promise<T> {
@@ -275,7 +245,26 @@ export function createApp(deps: AppDeps): Express {
   });
 
   app.use('/api/ai', createAiRouter());
-  app.use('/api', createSetupRouter(jobs));
+  // Le regole dipendono dal profilo: dopo un salvataggio si riapplicano subito. Durante una
+  // scansione no (scrive lo stesso archivio): la scansione le applica comunque alla fine.
+  const reapplyRules = async (profile = loadProfile()) => {
+    if (runManager.isRunning || agent.service.isApplying) return null;
+    return store.mutateAndSave(() => applyRules(store.all(), profile, new Date().toISOString()));
+  };
+  app.use('/api', createSetupRouter(jobs, reapplyRules));
+
+  /** «Riapplica regole»: rimette in lista o scarta in base al profilo attuale. Non usa l'AI. */
+  app.post('/api/listings/rules', wrap(async (req, res) => {
+    if (requireJsonEarly(req, res)) return;
+    if (runManager.isRunning || agent.service.isApplying) return res.status(409).json({ error: 'run in corso: riprova a fine run' });
+    res.json({ ok: true, ...(await reapplyRules()) });
+  }));
+
+  /** Cerca un luogo (punto di riferimento): passa dal server per la cache e lo User-Agent. */
+  app.get('/api/geo/search', wrap(async (req, res) => {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    res.json(await searchPlaces(q));
+  }));
   app.use('/api', createAssistRouter());
   app.use(
     '/api/update',
@@ -304,7 +293,13 @@ export function createApp(deps: AppDeps): Express {
 
   // --- Listings ---
   app.get('/api/listings', (req, res) => {
-    res.json(queryListings(store.all(), req.query));
+    const all = store.all();
+    const list = queryListings(all, req.query as Record<string, unknown>, loadProfile());
+    // Quanti ne ha tolti il profilo: la UI lo dice, così uno scarto automatico non è invisibile.
+    res.setHeader('X-Auto-Dismissed', String(all.filter((r) => r.status === 'dismissed' && r.auto).length));
+    // Quanti in tutto: "archivio vuoto" e "filtri troppo stretti" sono due messaggi diversi.
+    res.setHeader('X-Total-Listings', String(all.length));
+    res.json(list);
   });
 
   /**

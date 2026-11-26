@@ -210,6 +210,24 @@ export function isKnownCity(slug: string): boolean {
   return BY_SLUG.has(slug.trim().toLowerCase());
 }
 
+/**
+ * Lo slug di una città scritta come capita ("Torino", "Reggio Calabria", "torino (TO)").
+ * `null` se non è fra quelle dell'elenco.
+ */
+export function citySlugOf(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const base = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\(.*?\)/g, '')
+    .trim();
+  const slug = base.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (BY_SLUG.has(slug)) return slug;
+  const first = base.split(/[,/·-]/)[0]?.trim().replace(/\s+/g, '-') ?? '';
+  return BY_SLUG.has(first) ? first : null;
+}
+
 /** La città, o un errore che dice cosa fare. Per chi compone un percorso senza `cityPath`. */
 export function requireCity(slug: string): City {
   const c = findCity(slug);

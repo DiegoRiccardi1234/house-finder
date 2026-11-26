@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { StoredListing, ListingStatus, ListingFields } from '../types';
+import type { StoredListing, ListingStatus, ListingFields, Tenant } from '../types';
 import { ScoreBadge } from './ScoreBadge';
 import { Badge } from '../ui/Badge';
 import { Card } from '../ui/Card';
@@ -95,23 +95,72 @@ const STATUS_ACTIONS: { status: ListingStatus; label: string; on: string }[] = [
   { status: 'dismissed', label: 'Scarta', on: 'bg-surface-hi text-muted border border-line' },
 ];
 
-function meta(l: StoredListing['listing']): string {
+function meta(rec: StoredListing): string {
+  const l = rec.listing;
+  const f = rec.fields;
+  const price = l.price ?? f?.prezzo ?? null;
+  const sqm = l.sizeSqm ?? f?.m2 ?? null;
+  const rooms = f?.locali ?? l.rooms ?? null;
   const parts: string[] = [];
-  if (l.price != null) parts.push(`€${l.price}/mese`);
-  if (l.sizeSqm != null) parts.push(`${l.sizeSqm} m²`);
-  if (l.rooms != null) parts.push(`${l.rooms} loc.`);
-  if (l.zone) parts.push(l.zone);
+  if (price != null) parts.push(`€${price}/mese`);
+  if (sqm != null) parts.push(`${sqm} m²`);
+  if (rooms != null) parts.push(rooms === 1 ? 'monolocale' : rooms === 2 ? 'bilocale' : `${rooms} locali`);
+  const zone = l.zone ?? f?.zona;
+  if (zone) parts.push(zone);
   return parts.join(' · ');
+}
+
+const km = (n: number): string => `${n.toLocaleString('it-IT', { maximumFractionDigits: 1 })} km`;
+
+/** Il messaggio da mandare a chi affitta, scritto dal profilo e senza AI: lo copi e lo mandi tu. */
+export function askMessage(rec: StoredListing, tenant?: Tenant | null): string {
+  const chi = tenant?.occupazione === 'lavoratore'
+    ? 'Lavoro a tempo pieno (non sono uno studente)'
+    : tenant?.occupazione === 'studente'
+      ? 'Sono uno studente'
+      : 'Cerco casa per me';
+  const motivo = rec.askOwner?.reason ? ` Ho letto «${rec.askOwner.reason}»:` : '';
+  return [
+    `Buongiorno, le scrivo per l'annuncio «${rec.listing.title.slice(0, 90)}».`,
+    `${chi} e la casa fa al caso mio.${motivo ? `${motivo} sarebbe` : ' Sarebbe'} disponibile ad affittarla anche a me?`,
+    'Posso mandarle referenze e documenti. Grazie!',
+    rec.listing.url,
+  ].join('\n');
+}
+
+function AskOwner({ rec, tenant }: { rec: StoredListing; tenant?: Tenant | null }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="rounded-[var(--radius-btn)] border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+      <p className="text-ink">
+        <b>Da chiedere:</b> {rec.askOwner?.reason}. La casa merita: chiedi se affittano anche a te.
+      </p>
+      <button
+        type="button"
+        className="mt-1 text-xs font-medium text-accent underline-offset-2 hover:underline"
+        onClick={() => {
+          void navigator.clipboard.writeText(askMessage(rec, tenant)).then(() => setCopied(true)).catch(() => setCopied(false));
+        }}
+      >
+        {copied ? 'Messaggio copiato' : 'Copia il messaggio'}
+      </button>
+    </div>
+  );
 }
 
 export function ListingCard({
   rec,
   onStatus,
   statusDisabled = false,
+  refLabel,
+  tenant,
 }: {
   rec: StoredListing;
   onStatus: (key: string, status: ListingStatus) => void;
   statusDisabled?: boolean;
+  /** Nome del punto di riferimento della città ("lavoro"), per dire da dove si misura. */
+  refLabel?: string;
+  tenant?: Tenant | null;
 }) {
   const l = rec.listing;
   const dimmed = rec.status === 'dismissed';
@@ -151,7 +200,22 @@ export function ListingCard({
           <ScoreBadge ai={rec.ai} />
         </div>
 
-        <p className="text-sm tabular-nums text-muted">{meta(l)}</p>
+        <p className="text-sm tabular-nums text-muted">{meta(rec)}</p>
+        {rec.distanceKm != null ? (
+          <p className="text-sm text-ink-soft">
+            {km(rec.distanceKm)} {refLabel ? `da ${refLabel.toLowerCase()}` : 'dal riferimento'}
+            <span className="text-faint"> · in linea d'aria{rec.geo?.precision === 'zone' ? ', posizione approssimata' : ''}</span>
+          </p>
+        ) : refLabel ? (
+          <p className="text-xs text-faint">Posizione da verificare: l'annuncio non dice la via.</p>
+        ) : null}
+
+        {rec.auto && (
+          <p className="text-sm text-muted">
+            <b className="font-medium text-ink-soft">Scartato in automatico:</b> {rec.auto.reason}.
+          </p>
+        )}
+        {rec.askOwner && rec.status !== 'dismissed' && <AskOwner rec={rec} tenant={tenant} />}
 
         {rec.fields && <FieldChips f={rec.fields} />}
 
@@ -173,6 +237,17 @@ export function ListingCard({
               </div>
             )}
           </>
+        )}
+
+        {rec.alsoIn && rec.alsoIn.length > 0 && (
+          <p className="text-xs text-faint">
+            Pubblicato anche in{' '}
+            {rec.alsoIn.map((u, i) => (
+              <a key={u} href={u} target="_blank" rel="noreferrer" className="underline hover:text-accent">
+                {i === 0 ? '' : ', '}altro gruppo {i + 1}
+              </a>
+            ))}
+          </p>
         )}
 
         {rec.visionSummary && (

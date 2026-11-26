@@ -2,8 +2,9 @@ import type { ReactNode } from 'react';
 import { cx } from './cx.js';
 
 /**
- * La micro-etichetta in maiuscoletto spaziato: è la firma tipografica dell'app.
- * Sta sopra ogni sezione, dentro i badge e nelle intestazioni di tabella.
+ * La micro-etichetta sopra le sezioni. Era in maiuscolo spaziato da 10 px: "firma tipografica",
+ * ma messa ovunque rendeva la Config una parete di etichette illeggibili. Ora è testo normale,
+ * piccolo e nel carattere delle etichette: la gerarchia la fa il peso, non le maiuscole.
  */
 export function Kicker({
   children,
@@ -20,13 +21,13 @@ export function Kicker({
   return (
     <Tag
       className={cx(
-        'font-mono text-[0.62rem] font-medium uppercase tracking-[0.15em]',
+        'font-mono text-xs font-medium',
         color,
         className,
       )}
       style={{ fontFamily: 'var(--font-mono)' }}
     >
-      {children}
+      {typeof children === 'string' ? children.charAt(0).toUpperCase() + children.slice(1) : children}
     </Tag>
   );
 }

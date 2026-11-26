@@ -13,8 +13,8 @@ const VARIANT: Record<Variant, string> = {
 };
 
 const SIZE: Record<Size, string> = {
-  sm: 'px-2.5 py-1 text-[0.66rem] min-h-[30px]',
-  md: 'px-3.5 py-2 text-[0.72rem] min-h-[38px]',
+  sm: 'px-2.5 py-1 text-xs min-h-[30px]',
+  md: 'px-3.5 py-2 text-sm min-h-[38px]',
 };
 
 /**
@@ -40,7 +40,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       aria-busy={loading || undefined}
       className={cx(
         'inline-flex items-center justify-center gap-1.5 rounded-[var(--radius-btn)]',
-        'font-mono font-medium uppercase tracking-[0.08em]',
+        // Testo normale, non maiuscolo spaziato: un pulsante dice cosa fa, e "Salva e prova la
+        // connessione" in maiuscolo si legge a fatica.
+        'font-mono font-medium',
         'transition-[background-color,color,transform,opacity] duration-150',
         'hover:-translate-y-px disabled:pointer-events-none disabled:opacity-45 disabled:hover:translate-y-0',
         VARIANT[variant],

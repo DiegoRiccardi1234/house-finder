@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { Router, type Request, type Response } from 'express';
 import { ImapFlow } from 'imapflow';
@@ -13,17 +14,23 @@ import {
   DEFAULT_MAIL_PORT,
 } from '../config/mail.js';
 import {
+  cleanArea,
+  cleanLandmark,
   invalidateProfile,
   loadProfile,
+  normalizeProfile,
   profileConfigured,
   renderCriteria,
   saveProfile,
+  SEARCH_KINDS,
   type CityZones,
   type Profile,
+  type SearchKind,
   type SearchRow,
 } from '../config/profile.js';
 import { loginToFacebook, readSession } from '../sources/fb-login.js';
-import { braveAvailable, importFacebookFromBrave } from '../sources/fb-import.js';
+import { braveAvailable, importFacebookFrom, isFbBrowserId, listFbBrowsers, type FbBrowserId } from '../sources/fb-import.js';
+import { fbProfileDir, profileInUse } from '../sources/fb-session.js';
 import { browsersInstalled, installBrowsers } from './browsers.js';
 import { JobBusyError, JobManager, type JobId } from './jobs.js';
 
@@ -60,7 +67,7 @@ function slug(s: string): string {
     .slice(0, 60);
 }
 
-export function createSetupRouter(jobs: JobManager): Router {
+export function createSetupRouter(jobs: JobManager, onProfileSaved?: (p: Profile) => Promise<unknown>): Router {
   const r = Router();
 
   const requireJson = (req: Request, res: Response): boolean => {
@@ -99,19 +106,43 @@ export function createSetupRouter(jobs: JobManager): Router {
   // --- Facebook -------------------------------------------------------------------------------
 
   r.get('/facebook/session', (_req, res) => {
-    res.json({ ...readSession(), braveAvailable: braveAvailable() });
+    res.json({
+      ...readSession(),
+      browsers: listFbBrowsers(),
+      // Il profilo dell'app esiste: Facebook ha già visto questo computer, niente verifica nuova.
+      profileReady: existsSync(fbProfileDir()),
+      braveAvailable: braveAvailable(), // per le UI di prima della 1.9
+    });
   });
 
   /**
-   * Prende la sessione dal Brave in cui si è già dentro. Stesso id di lavoro del login: i due
+   * Prende la sessione da un browser in cui si è già dentro. Stesso id di lavoro del login: i due
    * scrivono lo stesso file, quindi non devono mai girare insieme.
    */
+  const importFrom = (browser: FbBrowserId, res: Response): void => {
+    const label = listFbBrowsers().find((b) => b.id === browser)?.label ?? browser;
+    startJob('fb-login', res, async (log) => {
+      const id = await importFacebookFrom(browser, log);
+      return `Collegato all'account ${id}, sessione presa da ${label}.`;
+    });
+  };
+
+  r.post('/facebook/import', (req, res) => {
+    if (requireJson(req, res)) return;
+    const browser = (req.body as { browser?: unknown } | undefined)?.browser;
+    if (!isFbBrowserId(browser)) {
+      return res.status(400).json({ error: 'unknown_browser', detail: 'Scegli un browser dall\'elenco.' });
+    }
+    const entry = listFbBrowsers().find((b) => b.id === browser)!;
+    if (!entry.importable) {
+      return res.status(400).json({ error: 'not_importable', detail: entry.note ?? `Da ${entry.label} non si può.` });
+    }
+    importFrom(browser, res);
+  });
+
   r.post('/facebook/import-brave', (req, res) => {
     if (requireJson(req, res)) return;
-    startJob('fb-login', res, async (log) => {
-      const id = await importFacebookFromBrave(log);
-      return `Collegato all'account ${id}, sessione presa da Brave.`;
-    });
+    importFrom('brave', res);
   });
 
   /**
@@ -134,9 +165,23 @@ export function createSetupRouter(jobs: JobManager): Router {
     });
   });
 
-  r.delete('/facebook/session', async (_req, res) => {
+  /**
+   * Di default toglie solo la sessione: il profilo del browser dell'app resta, così Facebook
+   * continua a riconoscere il computer e il prossimo accesso non richiede la verifica.
+   * `{ all: true }` (o `?all=1`) cancella anche quello — serve per cambiare account o ripartire da zero.
+   */
+  r.delete('/facebook/session', async (req, res) => {
+    const body = (req.body ?? {}) as { all?: unknown };
+    const all = body.all === true || req.query.all === '1' || req.query.all === 'true';
+    if (all) {
+      const dir = fbProfileDir();
+      if (jobs.isRunning('fb-login') || profileInUse(dir)) {
+        return res.status(409).json({ error: 'fb_busy', detail: 'Facebook è aperto da un accesso o da una scansione: aspetta che finisca e riprova.' });
+      }
+      await rm(dir, { recursive: true, force: true, maxRetries: 3 }).catch(() => {});
+    }
     await rm(FB_STATE_PATH, { force: true }).catch(() => {});
-    res.json({ ok: true });
+    res.json({ ok: true, ...(all ? { profileRemoved: !existsSync(fbProfileDir()) } : {}) });
   });
 
   // --- Browser --------------------------------------------------------------------------------
@@ -210,27 +255,42 @@ export function createSetupRouter(jobs: JobManager): Router {
         ...(Number.isFinite(Number(s.maxRooms)) && Number(s.maxRooms) > 0
           ? { maxRooms: Math.round(Number(s.maxRooms)) }
           : {}),
+        ...(SEARCH_KINDS.includes(s.tipo as SearchKind) ? { tipo: s.tipo as SearchKind } : {}),
       });
     }
 
     const zones: CityZones[] = (Array.isArray(b.zones) ? b.zones : [])
       .map((z) => z as Partial<CityZones>)
       .filter((z) => typeof z.city === 'string')
-      .map((z) => ({
-        city: (z.city as string).trim().toLowerCase(),
-        keep: cleanList(z.keep),
-        avoid: cleanList(z.avoid),
-      }));
+      .map((z) => {
+        const out: CityZones = {
+          city: (z.city as string).trim().toLowerCase(),
+          keep: cleanList(z.keep),
+          avoid: cleanList(z.avoid),
+        };
+        const area = cleanArea(z.area);
+        const riferimento = cleanLandmark(z.riferimento);
+        if (area) out.area = area;
+        if (riferimento) out.riferimento = riferimento;
+        return out;
+      });
 
+    // Chi cerca casa e soglia passano dallo stesso normalizzatore della lettura da disco.
+    const extra = normalizeProfile({ searches: [], tenant: b.tenant, askThreshold: b.askThreshold });
     const profile: Profile = {
       searches,
       zones,
       musts: cleanList(b.musts),
       notes: typeof b.notes === 'string' ? b.notes : '',
+      ...(extra.tenant ? { tenant: extra.tenant } : {}),
+      ...(extra.askThreshold != null ? { askThreshold: extra.askThreshold } : {}),
     };
 
     await saveProfile(profile);
     invalidateProfile();
+    // Le regole dipendono dal profilo: un tetto più alto o un'area più larga rimette in lista
+    // quello che prima era fuori, senza aspettare la prossima scansione.
+    await onProfileSaved?.(profile).catch(() => {});
     res.json({
       profile,
       generated: renderCriteria(profile),

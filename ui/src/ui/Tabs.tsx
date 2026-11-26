@@ -56,8 +56,8 @@ export function Tabs<T extends string>({
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(it.id)}
             className={cx(
-              'rounded-[var(--radius-btn)] font-mono uppercase tracking-[0.08em] transition-colors duration-150',
-              size === 'sm' ? 'px-2.5 py-1 text-[0.62rem]' : 'px-3 py-1.5 text-[0.68rem]',
+              'rounded-[var(--radius-btn)] font-mono font-medium transition-colors duration-150',
+              size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm',
               active ? 'bg-accent text-on-accent' : 'text-muted hover:bg-surface-3 hover:text-ink',
             )}
             style={{ fontFamily: 'var(--font-mono)' }}

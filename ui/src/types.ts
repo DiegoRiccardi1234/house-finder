@@ -48,6 +48,22 @@ export interface ListingFields {
   vincoli_inquilino: string[];
   contatto: ContactType | null;
   riassunto: string | null;
+  indirizzo?: string | null;
+  conflitto_inquilino?: 'no' | 'si' | 'forse' | null;
+  motivo_conflitto?: string | null;
+}
+
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+  precision: 'address' | 'street' | 'zone';
+  source: 'portal' | 'geocode';
+}
+
+export interface AutoDecision {
+  rule: 'tipo' | 'locali' | 'stanza' | 'prezzo' | 'area' | 'inquilino';
+  reason: string;
+  at: string;
 }
 
 export interface StoredListing {
@@ -62,6 +78,15 @@ export interface StoredListing {
   lastSeen: string;
   status: ListingStatus;
   notified: boolean;
+  city?: string | null;
+  geo?: GeoPoint | null;
+  /** Scartato da una regola del profilo, non da te. */
+  auto?: AutoDecision | null;
+  /** Casa buona ma con un vincolo che ti esclude: chiedi se affittano anche a te. */
+  askOwner?: { reason: string } | null;
+  alsoIn?: string[];
+  /** Calcolata dal server: distanza in linea d'aria dal punto di riferimento. */
+  distanceKm?: number | null;
 }
 
 export interface ChannelMeta {
@@ -180,6 +205,26 @@ export interface SearchRow {
   maxPrice: number;
   minRooms?: number;
   maxRooms?: number;
+  tipo?: SearchKind;
+}
+
+export type SearchKind = 'monolocale' | 'stanza' | 'bilocale' | 'trilocale' | 'quattro' | 'condivisa' | 'qualsiasi';
+
+/** [lat, lng] */
+export type LatLng = [number, number];
+
+export interface Landmark {
+  label: string;
+  address: string;
+  lat: number;
+  lng: number;
+}
+
+export interface Tenant {
+  occupazione: 'lavoratore' | 'studente' | 'altro';
+  genere?: 'donna' | 'uomo' | null;
+  animali?: boolean | null;
+  fumatore?: boolean | null;
 }
 
 /** Cosa ha capito l'AI da una frase, prima che l'utente la confermi. */
@@ -201,6 +246,8 @@ export interface CityZones {
   city: string;
   keep: string[];
   avoid: string[];
+  area?: { polygon: LatLng[] } | null;
+  riferimento?: Landmark | null;
 }
 
 export interface Profile {
@@ -208,6 +255,8 @@ export interface Profile {
   zones: CityZones[];
   musts: string[];
   notes: string;
+  tenant?: Tenant | null;
+  askThreshold?: number;
 }
 
 export interface ProfileState {
@@ -324,11 +373,28 @@ export interface RunStatus {
 
 export interface ListingFilters {
   channel: string;
+  /** '' tutti · 'active' da vedere (esclusi gli scartati) · 'ask' da chiedere · o uno stato preciso */
   status: string;
   city: string;
   minScore: number;
-  sort: 'score' | 'recent' | 'price';
+  sort: 'score' | 'recent' | 'price' | 'distance';
   q: string;
   arredato: string; // '' | 'sì' | 'no'
   soloPrivati: boolean;
+  priceMin: string;
+  priceMax: string;
+  sqmMin: string;
+  sqmMax: string;
+  /** Locali scelti: 1, 2, 3, 4 (= 4 o più). */
+  rooms: number[];
+  bagni: string; // '' | '1' | '2'
+  piano: string[]; // 'terra' | 'intermedio' | 'ultimo'
+  ascensore: boolean;
+  aria: boolean;
+  autonomo: boolean;
+  days: string; // '' | '1' | '3' | '7' | '14'
+  maxKm: string;
+  inArea: boolean;
+  /** Con distanza o area: tieni anche chi non ha una posizione nota. */
+  withoutGeo: boolean;
 }

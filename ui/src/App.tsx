@@ -144,14 +144,8 @@ export default function App() {
               Valutazione AI non configurata
             </button>
           )}
-          {meta && meta.aiConfigured && meta.profileConfigured && !meta.imapConfigured && (
-            <button
-              onClick={() => apriConfig('email')}
-              className="text-xs text-faint hover:underline"
-            >
-              Casella email non configurata
-            </button>
-          )}
+          {/* Niente richiamo «Casella email non configurata»: l'email è una fonte facoltativa, e
+              chi ha deciso di non usarla se lo vedeva in testata per sempre. Lo stato sta in Config. */}
           <ThemeToggle />
         </div>
       </header>

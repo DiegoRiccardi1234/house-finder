@@ -7,30 +7,48 @@ import { MailPanel } from './MailPanel';
 import { FacebookSession } from './FacebookSession';
 import { FacebookGroups } from './FacebookGroups';
 import { SearchEditor } from './SearchEditor';
+import { McpPanel } from './McpPanel';
 import { Button } from '../ui/Button';
 import { Card, CardHeader } from '../ui/Card';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { Tabs } from '../ui/Tabs';
+import { cx } from '../ui/cx';
 import type { Meta } from '../types';
 
 export type ConfigTab = 'search' | 'email' | 'facebook' | 'providers' | 'app';
 type Danger = 'reset' | 'refilter' | null;
 
 /**
- * Le impostazioni, divise per **cosa vuoi fare**, non per quale file c'è sotto.
+ * Le impostazioni, divise per **cosa vuoi fare**, con una barra laterale che dice a colpo d'occhio
+ * cosa è a posto e cosa no.
  *
- * Prima i tab erano "Criteri (AI)", "Ricerche/zone" e "Gruppi FB", e i primi due erano una casella
- * di testo con dentro rispettivamente un prompt markdown e un array JSON con `minRooms`. Erano i
- * nomi dei file, non le domande di chi li apriva — e la zona pericolosa, con "Svuota archivio",
- * compariva in fondo a ognuno di essi.
+ * Prima erano cinque schede in alto, e dentro «Connessioni AI» altre cinque: per sapere se Facebook
+ * era collegato o l'AI pronta bisognava aprire la sezione. Ora ogni voce porta il suo stato.
+ * Le sezioni si montano alla prima visita e poi restano vive: le modifiche non salvate non si
+ * perdono cambiando sezione.
  */
-const TABS = [
+const SECTIONS: { id: ConfigTab; label: string }[] = [
   { id: 'search', label: 'La tua ricerca' },
-  { id: 'email', label: 'Email' },
   { id: 'facebook', label: 'Facebook' },
-  { id: 'providers', label: 'Connessioni AI' },
-  { id: 'app', label: 'App' },
-] as const;
+  { id: 'email', label: 'Email' },
+  { id: 'providers', label: 'Intelligenza artificiale' },
+  { id: 'app', label: 'App e archivio' },
+];
+
+function statusOf(id: ConfigTab, meta?: Meta | null): { text: string; tone: 'ok' | 'warn' | 'muted' } {
+  if (!meta) return { text: '', tone: 'muted' };
+  switch (id) {
+    case 'search':
+      return meta.profileConfigured ? { text: 'Configurata', tone: 'ok' } : { text: 'Da completare', tone: 'warn' };
+    case 'facebook':
+      return meta.fbSessionExists ? { text: 'Collegato', tone: 'ok' } : { text: 'Non collegato', tone: 'muted' };
+    case 'email':
+      return meta.imapConfigured ? { text: 'Collegata', tone: 'ok' } : { text: 'Facoltativa', tone: 'muted' };
+    case 'providers':
+      return meta.aiConfigured ? { text: 'Pronta', tone: 'ok' } : { text: 'Da configurare', tone: 'warn' };
+    case 'app':
+      return meta.browsersInstalled ? { text: `Versione ${meta.version}`, tone: 'muted' } : { text: 'Mancano i browser', tone: 'warn' };
+  }
+}
 
 export function ConfigView({
   onProvidersChanged,
@@ -39,19 +57,12 @@ export function ConfigView({
   onArchiveChanged,
 }: {
   onProvidersChanged?: () => void;
-  /** Tab da aprire su richiesta esterna (il badge dell'header, il tasto Modifica del profilo). */
+  /** Sezione da aprire su richiesta esterna (il badge dell'header, il tasto Modifica del profilo). */
   openTab?: ConfigTab | null;
   meta?: Meta | null;
   onArchiveChanged: () => void;
 }) {
   const [tab, setTab] = useState<ConfigTab>('search');
-  /**
-   * Le schede si montano alla prima visita e poi restano vive, nascoste.
-   *
-   * Prima erano rendering condizionale: cambiare scheda **smontava il componente** e le modifiche
-   * non salvate sparivano senza chiedere niente. `App.tsx` fa così da sempre, con tanto di
-   * commento sul perché; qui la stessa regola era stata dimenticata.
-   */
   const [viste, setViste] = useState<Set<ConfigTab>>(new Set(['search']));
   const vai = (t: ConfigTab): void => {
     setTab(t);
@@ -63,100 +74,129 @@ export function ConfigView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openTab]);
 
-  /**
-   * Un pallino sulle schede che aspettano ancora qualcosa.
-   *
-   * L'ordine dei prerequisiti esisteva solo nella testa di chi ha scritto il codice: la ricerca
-   * serve per sapere dove guardare, i browser per quattro canali su cinque, la chiave AI per
-   * avere un voto. `Tabs` sapeva già mostrare un badge e non lo usava nessuno.
-   */
-  const tabsConBadge = TABS.map((t) => {
-    const manca =
-      (t.id === 'search' && meta && !meta.profileConfigured) ||
-      (t.id === 'providers' && meta && !meta.aiConfigured) ||
-      (t.id === 'app' && meta && !meta.browsersInstalled);
-    return manca ? { ...t, badge: '•' } : t;
-  });
-
   const [danger, setDanger] = useState<Danger>(null);
   const [dangerBusy, setDangerBusy] = useState(false);
-  const [resetMsg, setResetMsg] = useState('');
+  const [archiveMsg, setArchiveMsg] = useState('');
+  const [rulesBusy, setRulesBusy] = useState(false);
 
   async function runDanger() {
     setDangerBusy(true);
     try {
       if (danger === 'reset') {
         const r = await api.resetListings();
-        setResetMsg(`Archivio svuotato: ${r.cleared} annunci rimossi.`);
+        setArchiveMsg(`Archivio svuotato: ${r.cleared} annunci rimossi.`);
       } else {
         const r = await api.refilterListings();
-        setResetMsg(`Ripulito: ${r.removed} rimossi, restano ${r.after}.`);
+        setArchiveMsg(`Ripulito: ${r.removed} rimossi, restano ${r.after}.`);
       }
       onArchiveChanged();
     } catch (e) {
-      setResetMsg(`Errore: ${(e as Error).message}`);
+      setArchiveMsg(`Errore: ${(e as Error).message}`);
     } finally {
       setDangerBusy(false);
       setDanger(null);
     }
   }
 
+  async function reapply() {
+    setRulesBusy(true);
+    try {
+      const r = await api.reapplyRules();
+      setArchiveMsg(`Regole applicate: ${r.dismissed ?? 0} scartati, ${r.restored ?? 0} rimessi fra i nuovi, ${r.ask ?? 0} da chiedere.`);
+      onArchiveChanged();
+    } catch (e) {
+      setArchiveMsg(`Errore: ${(e as Error).message}`);
+    } finally {
+      setRulesBusy(false);
+    }
+  }
+
+  const panel = (id: ConfigTab, node: React.ReactNode) =>
+    viste.has(id) && (
+      <div hidden={tab !== id} className="flex min-w-0 flex-col gap-4">
+        <h2 className="text-2xl text-ink">{SECTIONS.find((s) => s.id === id)?.label}</h2>
+        {node}
+      </div>
+    );
+
   return (
-    <div className="flex flex-col gap-4">
-      <Tabs items={tabsConBadge} value={tab} onChange={vai} label="Sezioni di configurazione" />
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <nav aria-label="Sezioni delle impostazioni" className="lg:sticky lg:top-4 lg:w-60 lg:shrink-0">
+        <ul className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+          {SECTIONS.map((s) => {
+            const st = statusOf(s.id, meta);
+            const active = tab === s.id;
+            return (
+              <li key={s.id} className="shrink-0">
+                <button
+                  type="button"
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => vai(s.id)}
+                  className={cx(
+                    'flex w-full flex-col items-start rounded-[var(--radius-btn)] px-3 py-2 text-left transition-colors',
+                    active ? 'bg-accent text-on-accent' : 'text-ink hover:bg-surface-3',
+                  )}
+                >
+                  <span className="text-sm font-medium">{s.label}</span>
+                  {st.text && (
+                    <span className={cx('text-xs', active ? 'text-on-accent/80' : st.tone === 'ok' ? 'text-ok' : st.tone === 'warn' ? 'text-warn' : 'text-muted')}>
+                      {st.tone === 'warn' ? '● ' : ''}{st.text}
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
 
-      {viste.has('search') && (
-        <div hidden={tab !== 'search'}>
-          <SearchEditor onSaved={onProvidersChanged} />
-        </div>
-      )}
+      <div className="min-w-0 flex-1">
+        {panel('search', <SearchEditor onSaved={() => { onProvidersChanged?.(); onArchiveChanged(); }} />)}
+        {panel('facebook', (
+          <>
+            {/* La sessione sta sopra l'elenco: senza accesso, i gruppi non si possono leggere. */}
+            <FacebookSession onChanged={onProvidersChanged} />
+            <FacebookGroups />
+          </>
+        ))}
+        {panel('email', <MailPanel onChanged={onProvidersChanged} />)}
+        {panel('providers', <ConnectionsPanel onChanged={onProvidersChanged} />)}
+        {panel('app', (
+          <>
+            <UpdatePanel />
+            <BrowsersPanel meta={meta ?? null} onChanged={onProvidersChanged} />
 
-      {viste.has('email') && (
-        <div hidden={tab !== 'email'}>
-          <MailPanel onChanged={onProvidersChanged} />
-        </div>
-      )}
+            <Card>
+              <CardHeader title="Archivio degli annunci" />
+              <div className="flex flex-col gap-3 p-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button variant="secondary" loading={rulesBusy} onClick={() => void reapply()}>Riapplica le regole</Button>
+                  <p className="flex-1 text-sm text-muted">
+                    Ricontrolla tutti gli annunci con la ricerca attuale (tipo di casa, prezzo, area, vincoli). Non usa l'AI e non tocca
+                    quelli che hai segnato tu.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 border-t border-hair pt-3">
+                  <Button variant="secondary" onClick={() => setDanger('refilter')}>Ripulisci il rumore</Button>
+                  <Button variant="danger" onClick={() => setDanger('reset')}>Svuota l'archivio</Button>
+                  <p className="flex-1 text-sm text-muted">
+                    <b>Ripulisci</b> toglie commenti Facebook e non-affitti. <b>Svuota</b> cancella tutto: alla prossima ricerca gli
+                    annunci vengono ritrovati e rivalutati da zero. Nessuno dei due si può annullare.
+                  </p>
+                </div>
+                {archiveMsg && <p role="status" className="text-sm text-ink-soft">{archiveMsg}</p>}
+              </div>
+            </Card>
 
-      {viste.has('facebook') && (
-        <div hidden={tab !== 'facebook'} className="flex flex-col gap-4">
-          {/* La sessione sta sopra l'elenco: senza accesso, i gruppi non si possono leggere. */}
-          <FacebookSession onChanged={onProvidersChanged} />
-          <FacebookGroups />
-        </div>
-      )}
-
-      {viste.has('providers') && (
-        <div hidden={tab !== 'providers'} className="flex flex-col gap-4">
-          {/* La key prima del modello: senza, la scelta del modello è solo un avviso. */}
-          <ConnectionsPanel onChanged={onProvidersChanged} />
-        </div>
-      )}
-
-      {viste.has('app') && (
-        <div hidden={tab !== 'app'} className="flex flex-col gap-4">
-          <UpdatePanel />
-          <BrowsersPanel meta={meta ?? null} onChanged={onProvidersChanged} />
-
-          {/* Una volta sola, e nella scheda che parla dell'app — non in fondo a ogni schermata. */}
-          <Card className="border-danger/30">
-            <CardHeader kicker="irreversibile" title="Zona pericolosa" />
-            <div className="flex flex-wrap items-center gap-3 p-4">
-              <Button variant="secondary" onClick={() => setDanger('refilter')}>
-                Ripulisci rumore
-              </Button>
-              <Button variant="danger" onClick={() => setDanger('reset')}>
-                Svuota archivio
-              </Button>
-              <p className="flex-1 text-xs text-muted">
-                <b>Ripulisci</b> toglie il rumore Facebook (commenti, chrome) e i non-affitti, senza
-                toccare il resto e senza usare l'AI. <b>Svuota</b> cancella tutto: al prossimo run gli
-                annunci vengono ri-trovati e ri-valutati da zero.
-              </p>
-              {resetMsg && <span className="text-sm text-ink-soft">{resetMsg}</span>}
-            </div>
-          </Card>
-        </div>
-      )}
+            <details className="rounded-[var(--radius-card)] border border-hair bg-surface-2">
+              <summary className="cursor-pointer px-4 py-3 text-lg text-ink" style={{ fontFamily: 'var(--font-display)' }}>Avanzate</summary>
+              <div className="border-t border-hair p-4">
+                <McpPanel onChanged={onProvidersChanged} />
+              </div>
+            </details>
+          </>
+        ))}
+      </div>
 
       <ConfirmDialog
         open={danger !== null}
@@ -167,7 +207,7 @@ export function ConfigView({
         onConfirm={runDanger}
       >
         {danger === 'reset'
-          ? 'Vengono cancellati tutti gli annunci, i voti e gli stati (preferiti, contattati). Al prossimo run verranno ri-trovati e ri-valutati da zero, consumando quota AI.'
+          ? 'Vengono cancellati tutti gli annunci, i voti e gli stati (preferiti, contattati). Alla prossima ricerca verranno ritrovati e rivalutati da zero, consumando quota AI.'
           : 'Vengono rimossi i record riconosciuti come rumore (commenti Facebook, elementi di interfaccia, annunci che non sono affitti). L’operazione non usa l’AI e non è reversibile.'}
       </ConfirmDialog>
     </div>

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AiScore, ContactType, Furnished, Listing, ListingFields } from '../core/types.js';
+import type { AiScore, ContactType, Furnished, Listing, ListingFields, TenantConflict } from '../core/types.js';
 import { dedupKey } from '../core/state.js';
 import { loadCriteria } from '../config/criteria.js';
 import { recordPenalty, beginScoringTask, endScoringTask } from './endpoint-health.js';
@@ -39,6 +39,9 @@ const Item = z.object({
   vincoli_inquilino: z.array(z.string()).catch([]),
   contatto: z.string().nullable().catch(null),
   riassunto: z.string().nullable().catch(null),
+  indirizzo: z.string().nullable().optional().catch(null),
+  conflitto_inquilino: z.string().nullable().optional().catch(null),
+  motivo_conflitto: z.string().nullable().optional().catch(null),
   score: z.number().finite().min(0).max(100),
   verdict: z.string().catch(''),
   pros: z.array(z.string()).catch([]),
@@ -57,7 +60,15 @@ const SYSTEM = [
   'Campi: citta, zona, tipologia, prezzo(numero), spese, m2(numero), locali(numero), bagni(numero), piano,',
   'ascensore(true/false), arredato("sì"/"parziale"/"no"), classe_energetica, riscaldamento, aria_condizionata(true/false),',
   'disponibile_da, tipo_contratto, vincoli_inquilino(lista, es. "no studenti","solo referenziati","no animali"),',
-  'contatto("privato"/"agenzia"), riassunto(1 frase).',
+  'contatto("privato"/"agenzia"), riassunto(1 frase),',
+  'indirizzo (via/corso/piazza + civico, oppure incrocio "via X angolo via Y", SOLO se scritto; mai il quartiere da solo),',
+  'conflitto_inquilino ("si"/"forse"/"no") e motivo_conflitto (max 6 parole, es. "solo studenti", "solo ragazze").',
+  '',
+  'CONFLITTO INQUILINO — confronta i vincoli dell’annuncio con CHI CERCA CASA nei criteri:',
+  '- "si": l’annuncio esclude chi cerca in modo esplicito (es. "solo studenti" e chi cerca lavora; "solo ragazze" e chi cerca è uomo; "no animali" e ha animali).',
+  '- "forse": vincolo ambiguo o indiretto (es. "preferibilmente studenti", "ideale per Erasmus").',
+  '- "no": nessun vincolo che lo escluda. "Studenti o lavoratori", "ideale per studenti" detto come pregio, "solo referenziati" → "no".',
+  '- Se CHI CERCA CASA non c’è nei criteri → sempre "no".',
   '',
   'GRIGLIA DI PUNTEGGIO (score 0-100, rispettala):',
   '- Fuori città target, tipologia sbagliata, o prezzo oltre il tetto → ≤ 20.',
@@ -65,7 +76,8 @@ const SYSTEM = [
   '- Zona in SCARTA o chiaramente periferica / non in whitelist → ≤ 40, anche se la casa è bella.',
   '- Zona whitelist "ok"/bordo → fino a ~75.  Zona whitelist "core" + arredato + entro budget → 80-100.',
   '- Zona non indicata → non scartare per zona, segnala l\'incertezza nei cons.',
-  'I vincoli inquilino in conflitto coi criteri (es. "solo studenti" se non sei studente) pesano nei cons e abbassano lo score.',
+  'Lo score valuta LA CASA (tipologia, zona, prezzo, arredo, stato): NON abbassarlo per i vincoli sull’inquilino,',
+  'che vanno solo in conflitto_inquilino (li gestisce l’app). Se ci sono, citali nei cons.',
   '',
   'Dai anche: verdict (una riga), pros (max 3), cons (max 3), worthVisit (true/false).',
 ].join('\n');
@@ -107,6 +119,14 @@ function normContatto(v: string | null): ContactType | null {
   if (/privat/i.test(v)) return 'privato';
   return null;
 }
+function normConflict(v: string | null | undefined): TenantConflict | null {
+  if (!v) return null;
+  const s = v.trim().toLowerCase();
+  if (/^(si|sì|yes|true)/.test(s)) return 'si';
+  if (/^(forse|maybe|probabil|ambigu)/.test(s)) return 'forse';
+  if (/^(no|false|nessun)/.test(s)) return 'no';
+  return null;
+}
 const toStr = (v: string | number | null): string | null => (v == null ? null : String(v).trim() || null);
 
 function toResult(it: ItemT): ScoreResult {
@@ -132,6 +152,9 @@ function toResult(it: ItemT): ScoreResult {
       vincoli_inquilino: it.vincoli_inquilino,
       contatto: normContatto(it.contatto),
       riassunto: it.riassunto,
+      indirizzo: it.indirizzo?.trim() || null,
+      conflitto_inquilino: normConflict(it.conflitto_inquilino),
+      motivo_conflitto: it.motivo_conflitto?.trim() || null,
     },
   };
 }

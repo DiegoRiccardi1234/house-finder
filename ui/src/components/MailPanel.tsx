@@ -5,7 +5,7 @@ import { Alert } from '../ui/Alert';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
-import { Field, Input } from '../ui/Field';
+import { Field, Input, Select } from '../ui/Field';
 import { cx } from '../ui/cx';
 
 /**
@@ -19,6 +19,15 @@ import { cx } from '../ui/cx';
  * vuoto anche quando è configurata, e lasciarlo vuoto significa "non l'ho toccata" — non
  * "cancellala", altrimenti cambiare la cartella la butterebbe via.
  */
+/** I provider più comuni: chi non sa cos'è un server IMAP sceglie il nome della sua posta. */
+const PRESET: { id: string; label: string; host: string; nota?: string }[] = [
+  { id: 'virgilio', label: 'Virgilio', host: 'in.virgilio.it' },
+  { id: 'libero', label: 'Libero', host: 'imapmail.libero.it' },
+  { id: 'gmail', label: 'Gmail', host: 'imap.gmail.com', nota: 'Con Gmail serve una «password per le app» (Account Google → Sicurezza), non la password normale.' },
+  { id: 'outlook', label: 'Outlook / Hotmail', host: 'outlook.office365.com' },
+  { id: 'altro', label: 'Altro', host: '' },
+];
+
 export function MailPanel({ onChanged }: { onChanged?: () => void }) {
   const [cfg, setCfg] = useState<MailConfig | null>(null);
   const [host, setHost] = useState('');
@@ -74,8 +83,8 @@ export function MailPanel({ onChanged }: { onChanged?: () => void }) {
         <div>
           <h3 className="text-base text-ink">Casella email</h3>
           <p className="text-xs text-muted">
-            Da qui arrivano gli avvisi delle ricerche salvate sui portali. Serve un account IMAP:
-            quello dedicato agli annunci, non la tua posta di tutti i giorni.
+            Facoltativa. Se sui portali hai salvato delle ricerche che ti mandano avvisi per email,
+            l'app li legge da qui. Meglio una casella dedicata agli annunci, non quella di tutti i giorni.
           </p>
         </div>
         <Badge tone={cfg.configured ? 'ok' : 'neutral'}>
@@ -96,12 +105,21 @@ export function MailPanel({ onChanged }: { onChanged?: () => void }) {
           void salva();
         }}
       >
-        <Field label="Server IMAP" hint={`predefinito: ${cfg.defaults.host}`}>
-          {(a) => <Input {...a} value={host} onChange={(e) => setHost(e.target.value)} />}
+        <Field label="La tua posta" hint={PRESET.find((x) => x.host === host)?.nota}>
+          {(a) => (
+            <Select
+              {...a}
+              value={PRESET.find((x) => x.host && x.host === host)?.id ?? 'altro'}
+              onChange={(e) => {
+                const pr = PRESET.find((x) => x.id === e.target.value);
+                if (pr?.host) setHost(pr.host);
+              }}
+            >
+              {PRESET.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+            </Select>
+          )}
         </Field>
-        <Field label="Cartella" hint={`predefinita: ${cfg.defaults.folder}`}>
-          {(a) => <Input {...a} value={folder} onChange={(e) => setFolder(e.target.value)} />}
-        </Field>
+        <div className="hidden md:block" />
         <Field label="Indirizzo">
           {(a) => (
             <Input
@@ -128,6 +146,18 @@ export function MailPanel({ onChanged }: { onChanged?: () => void }) {
             />
           )}
         </Field>
+
+        <details className="text-sm text-muted md:col-span-2">
+          <summary className="cursor-pointer">Impostazioni avanzate (server e cartella)</summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <Field label="Server IMAP" hint={`predefinito: ${cfg.defaults.host}`}>
+              {(a) => <Input {...a} value={host} onChange={(e) => setHost(e.target.value)} />}
+            </Field>
+            <Field label="Cartella" hint={`predefinita: ${cfg.defaults.folder}`}>
+              {(a) => <Input {...a} value={folder} onChange={(e) => setFolder(e.target.value)} />}
+            </Field>
+          </div>
+        </details>
 
         <div className="flex flex-wrap items-center gap-2 md:col-span-2">
           <Button size="sm" variant="primary" type="submit" loading={busy}>

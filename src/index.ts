@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     for (const r of summary.results) {
       for (const rec of r.newRecords) {
         if (notified >= MAX_NOTIFY) break;
+        if (rec.status === 'dismissed') continue; // scartato dalle regole del profilo
         if (rec.ai && rec.ai.score < MIN_SCORE) continue;
         await sendListing(LABELS[rec.channel as ChannelId] ?? rec.channel, rec.listing, rec.ai ?? undefined);
         notified++;

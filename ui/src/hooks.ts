@@ -251,24 +251,18 @@ export function useUpdate(): {
 
 export function useListings(filters: ListingFilters, refreshToken = 0, onChanged?: () => void) {
   const [items, setItems] = useState<StoredListing[]>([]);
+  const [autoDismissed, setAutoDismissed] = useState(0);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [manual, setManual] = useState(0);
   const abort = useRef<AbortController | null>(null);
 
-  // Solo il testo libero va ritardato: i select cambiano di rado e devono rispondere subito.
-  const q = useDebounced(filters.q, 250);
-  const effective = useMemo<ListingFilters>(() => ({ ...filters, q }), [
-    filters.channel,
-    filters.status,
-    filters.city,
-    filters.minScore,
-    filters.sort,
-    filters.arredato,
-    filters.soloPrivati,
-    q,
-  ]);
+  // Testo e cifre si scrivono un tasto alla volta: si aspetta che la mano si fermi. Si confronta
+  // la forma serializzata, così un oggetto nuovo con gli stessi valori non rifà la richiesta.
+  const key = useDebounced(JSON.stringify(filters), 250);
+  const effective = useMemo<ListingFilters>(() => JSON.parse(key) as ListingFilters, [key]);
 
   useEffect(() => {
     abort.current?.abort(); // la risposta lenta di una query vecchia non deve sovrascrivere la nuova
@@ -277,9 +271,12 @@ export function useListings(filters: ListingFilters, refreshToken = 0, onChanged
     setLoading(true);
     setError(null);
     api
-      .listings(effective, ac.signal)
-      .then((rows) => {
-        if (!ac.signal.aborted) setItems(rows);
+      .listingsWithHidden(effective, ac.signal)
+      .then(({ items: rows, autoDismissed: hidden, total: all }) => {
+        if (ac.signal.aborted) return;
+        setItems(rows);
+        setAutoDismissed(hidden);
+        setTotal(all);
       })
       .catch((e: Error) => {
         if (ac.signal.aborted || e.name === 'AbortError') return;
@@ -297,14 +294,15 @@ export function useListings(filters: ListingFilters, refreshToken = 0, onChanged
     setActionError(null);
     try {
       const updated = await api.setStatus(key, status);
-      setItems((prev) => prev.map((r) => (r.key === key ? updated : r)));
+      // La PATCH restituisce il record salvato: la distanza è calcolata solo in lettura, si conserva.
+      setItems((prev) => prev.map((r) => (r.key === key ? { ...updated, distanceKm: r.distanceKm } : r)));
       onChanged?.();
     } catch (e) {
       setActionError((e as Error).message);
     }
   }, [onChanged]);
 
-  return { items, loading, error, actionError, refresh, setStatus };
+  return { items, autoDismissed, total, loading, error, actionError, refresh, setStatus };
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { Listing, AiScore, ListingFields } from './types.js';
+import type { Listing, AiScore, ListingFields, GeoPoint } from './types.js';
 import { dedupKey } from './state.js';
 import { writeJsonAtomic, readJsonResilient } from './atomic.js';
 import { acquireStoreLock } from './store-lock.js';
@@ -18,9 +18,28 @@ export interface StoredListing {
   lastSeen: string; // ISO
   status: ListingStatus;
   notified: boolean;
+  /** Slug della città a cui appartiene l'annuncio (ricerca, gruppo FB o campo AI). */
+  city?: string | null;
+  /** Posizione, se nota. */
+  geo?: GeoPoint | null;
+  /**
+   * Scarto deciso da una regola del profilo, non dall'utente. Finché c'è, le regole possono
+   * rimettere l'annuncio fra i nuovi se il profilo cambia; una scelta manuale lo cancella.
+   */
+  auto?: AutoDecision | null;
+  /** Casa buona con un vincolo sull'inquilino che ti esclude: vale la pena chiedere. */
+  askOwner?: { reason: string } | null;
+  /** Lo stesso post pubblicato altrove (altri gruppi FB): gli indirizzi dei doppioni. */
+  alsoIn?: string[];
 }
 
-type Patch = Partial<Pick<StoredListing, 'ai' | 'fields' | 'visionSummary' | 'photos' | 'notified' | 'channel'>>;
+export interface AutoDecision {
+  rule: 'tipo' | 'locali' | 'stanza' | 'prezzo' | 'area' | 'inquilino';
+  reason: string;
+  at: string; // ISO
+}
+
+type Patch = Partial<Pick<StoredListing, 'ai' | 'fields' | 'visionSummary' | 'photos' | 'notified' | 'channel' | 'city' | 'geo'>>;
 
 const DEFAULT_PATH = 'state/listings.json';
 
@@ -101,16 +120,29 @@ export class ListingStore {
       status: prev?.status ?? 'new',
       notified: patch.notified ?? prev?.notified ?? false,
     };
+    // Campi facoltativi: elencati uno per uno, altrimenti la scansione successiva li perderebbe.
+    const city = patch.city ?? prev?.city;
+    if (city) rec.city = city;
+    const geo = patch.geo ?? prev?.geo;
+    if (geo) rec.geo = geo;
+    if (prev?.auto) rec.auto = prev.auto;
+    if (prev?.askOwner) rec.askOwner = prev.askOwner;
+    if (prev?.alsoIn?.length) rec.alsoIn = prev.alsoIn;
     this.items[key] = rec;
     return rec;
   }
 
-  /** Aggiorna lo stato utente (favorite/dismissed/contacted). Ritorna false se la key non esiste. */
+  /**
+   * Aggiorna lo stato utente (favorite/dismissed/contacted). Ritorna false se la key non esiste.
+   * Una scelta manuale (UI o agente) cancella la decisione automatica: da lì in poi le regole
+   * non la toccano più. `askOwner` resta: è un'informazione ("chiedi se affittano a te"), non uno stato.
+   */
   setStatus(key: string, status: ListingStatus): boolean {
     if (unsafeKey(key)) return false;
     const rec = this.items[key];
     if (!rec) return false;
     rec.status = status;
+    delete rec.auto;
     return true;
   }
 

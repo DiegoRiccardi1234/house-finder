@@ -6,6 +6,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-26
+
+### Added
+
+- Profile rules applied in code, not only through the AI score. A new listing is dismissed
+  automatically (reversibly, with the reason on the card) when its rooms, price or "room in a
+  shared flat" type fall outside your searches, when its known position is outside the area you
+  drew, or when it excludes you as a tenant. Rules run after every scan, after saving the search and
+  from *Config → App → Riapplica le regole*; they never touch a status you set yourself, and a
+  listing that no longer breaks any rule comes back among the new ones.
+- "Chi cerca casa" in the search profile (occupation, and optionally gender, pets, smoking). The AI
+  now reports whether a listing excludes you ("solo studenti", "solo ragazze") separately from the
+  score of the home itself. If the home scores at least the chosen threshold (70 by default) it
+  stays visible as **Da chiedere**, with a ready-to-copy message for the owner.
+- Area drawn on a map and a reference point (e.g. your workplace) for each city, in
+  *Config → La tua ricerca → Dove*. Each card shows the distance from the reference point; listings
+  without a known street stay visible with "posizione da verificare".
+- Listing positions: coordinates from Immobiliare (street level) and Subito (only when precise),
+  otherwise the street the AI reads in the text, looked up on OpenStreetMap Nominatim (one request
+  per second, at most 60 per scan, cached in `state/geocache.json`).
+- Listings filters in the style of the portals: price range, rooms 1/2/3/4+, size, bathrooms,
+  floor, furnished, lift, air conditioning, independent heating, private contact, seen in the last
+  N days, within X km of the reference point, only inside the area. New "distance" sort, list/map
+  toggle with pins coloured by score, and a "Da chiedere" status.
+- The same Facebook post published in several groups is kept once, with "Pubblicato anche in".
+- Facebook session from Brave, Edge, Vivaldi, Opera or Firefox (browser closed), not only Brave.
+  Chrome cannot be read from outside: the app says so and offers "Accedi da qui".
+- "Accedi da qui" and Facebook scans share one persistent browser profile, so Facebook asks for
+  device verification once instead of at every sign-in.
+
+### Changed
+
+- Listings open on "Da vedere" (everything except dismissed) and say how many listings the profile
+  dismissed automatically.
+- Config redesigned: side navigation with the state of each section, search split into clear
+  blocks (who, what, where, must-haves, neighbourhoods, AI notes), explicit Keep/Avoid neighbourhood
+  buttons, Facebook groups added by pasting a link with a warning for student-only groups, email
+  presets for Virgilio, Gmail and Outlook, AI tasks and connections on one page with live status.
+- Labels are no longer uppercase monospace across the interface.
+- The AI score judges the home; tenant restrictions are reported apart instead of lowering it.
+- The email reminder in the header only appears when email is an active source.
+- Requires Node 22.13 or newer (the bundled runtime is 22.23.4).
+
+### Privacy
+
+- The map loads tiles from OpenStreetMap, and addresses (yours and the listings') are looked up on
+  OpenStreetMap Nominatim. Nothing else leaves the computer.
+
 ## [1.8.3] - 2026-11-24
 
 ### Added
