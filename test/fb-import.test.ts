@@ -162,8 +162,10 @@ test('Firefox: profilo predefinito da profiles.ini ([Install] prima, poi Default
   assert.equal(firefoxDefaultProfile(dir), join(dir, 'Profiles/abc.default-release'));
   writeFileSync(join(dir, 'profiles.ini'), '[Profile0]\nName=a\nIsRelative=0\nPath=D:\\FF\\p\n\n[Profile1]\nIsRelative=1\nPath=Profiles/b\nDefault=1\n');
   assert.equal(firefoxDefaultProfile(dir), join(dir, 'Profiles/b'));
-  writeFileSync(join(dir, 'profiles.ini'), '[Profile0]\nName=a\nIsRelative=0\nPath=D:\\FF\\p\n');
-  assert.equal(firefoxDefaultProfile(dir), 'D:\\FF\\p');
+  // Percorso assoluto per la piattaforma che esegue il test: la CI gira anche su Linux.
+  const abs = join(root, 'altrove', 'p');
+  writeFileSync(join(dir, 'profiles.ini'), `[Profile0]\nName=a\nIsRelative=0\nPath=${abs}\n`);
+  assert.equal(firefoxDefaultProfile(dir), abs);
   assert.equal(firefoxDefaultProfile(join(root, 'nessuno')), null);
 });
 
