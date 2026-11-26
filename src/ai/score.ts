@@ -40,7 +40,9 @@ const Item = z.object({
   contatto: z.string().nullable().catch(null),
   riassunto: z.string().nullable().catch(null),
   indirizzo: z.string().nullable().optional().catch(null),
-  conflitto_inquilino: z.string().nullable().optional().catch(null),
+  // Alcuni modelli rispondono true/false invece di "si"/"no": senza il booleano lo schema li
+  // buttava, e un "solo studenti" restava senza conflitto (visto su C il 26/11).
+  conflitto_inquilino: z.union([z.string(), z.boolean()]).nullable().optional().catch(null),
   motivo_conflitto: z.string().nullable().optional().catch(null),
   score: z.number().finite().min(0).max(100),
   verdict: z.string().catch(''),
@@ -61,7 +63,8 @@ const SYSTEM = [
   'ascensore(true/false), arredato("sì"/"parziale"/"no"), classe_energetica, riscaldamento, aria_condizionata(true/false),',
   'disponibile_da, tipo_contratto, vincoli_inquilino(lista, es. "no studenti","solo referenziati","no animali"),',
   'contatto("privato"/"agenzia"), riassunto(1 frase),',
-  'indirizzo (via/corso/piazza + civico, oppure incrocio "via X angolo via Y", SOLO se scritto; mai il quartiere da solo),',
+  'indirizzo (la via/corso/piazza scritta nel titolo o nel testo, col civico se c’è: anche senza civico va bene, es. "via Gorizia";',
+  'oppure incrocio "via X angolo via Y"; SOLO se scritto; mai il quartiere da solo),',
   'conflitto_inquilino ("si"/"forse"/"no") e motivo_conflitto (max 6 parole, es. "solo studenti", "solo ragazze").',
   '',
   'CONFLITTO INQUILINO — confronta i vincoli dell’annuncio con CHI CERCA CASA nei criteri:',
@@ -119,10 +122,12 @@ function normContatto(v: string | null): ContactType | null {
   if (/privat/i.test(v)) return 'privato';
   return null;
 }
-function normConflict(v: string | null | undefined): TenantConflict | null {
+export function normConflict(v: string | boolean | null | undefined): TenantConflict | null {
+  if (v === true) return 'si';
+  if (v === false) return 'no';
   if (!v) return null;
   const s = v.trim().toLowerCase();
-  if (/^(si|sì|yes|true)/.test(s)) return 'si';
+  if (/^(si|sì|yes|true)(?![a-zà-ù])/.test(s)) return 'si';
   if (/^(forse|maybe|probabil|ambigu)/.test(s)) return 'forse';
   if (/^(no|false|nessun)/.test(s)) return 'no';
   return null;
@@ -153,7 +158,8 @@ function toResult(it: ItemT): ScoreResult {
       contatto: normContatto(it.contatto),
       riassunto: it.riassunto,
       indirizzo: it.indirizzo?.trim() || null,
-      conflitto_inquilino: normConflict(it.conflitto_inquilino),
+      // Un motivo senza esito leggibile vale come conflitto: il motivo si scrive solo in quel caso.
+      conflitto_inquilino: normConflict(it.conflitto_inquilino) ?? (it.motivo_conflitto?.trim() ? 'si' : null),
       motivo_conflitto: it.motivo_conflitto?.trim() || null,
     },
   };

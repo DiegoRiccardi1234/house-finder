@@ -3,7 +3,38 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { haversineKm, insidePolygon } from '../src/core/geo.js';
-import { bboxOf, geocodeAddress, precisionOf, resetGeocoder } from '../src/core/geocode.js';
+import { bboxOf, geocodeAddress, precisionOf, resetGeocoder, streetFromText } from '../src/core/geocode.js';
+import { normConflict } from '../src/ai/score.js';
+
+test('streetFromText: titoli veri del 26/11 (Subito, Immobiliare, Idealista)', () => {
+  const casi: Array<[string, string | null]> = [
+    ['VIA GORIZIA DECOROSO E GRAZIOSO BILOCALE NUOVO', 'via gorizia'],
+    ['MONOLOCALE LUMINOSO VIA VENTIMIGLIA', 'via ventimiglia'],
+    ['CORSO TRAPANI ALLOGGIO CON BOX', 'corso trapani'],
+    ['BILOCALE VIA CESANA', 'via cesana'],
+    ['CORSO GALILEO FERRARIS BILOCALE NUOVO', 'corso galileo ferraris'],
+    ['Bilocale in Via Brione, Campidoglio, Torino', 'via brione'],
+    ['Bilocale corso Spezia, 55, Nizza Millefonti, Torino', 'corso spezia 55'],
+    ['Monolocale via Andrea Massena 18, Crocetta, Torino', 'via andrea massena 18'],
+    ["Monolocale in Via Sant'Antonio da Padova, 14, Centro", "via sant'antonio da padova 14"],
+    ['MONOLOCALE SPAZIOSO : C.SO SICCARDI', 'corso siccardi'],
+    ['ALLOGGIO CON TERRAZZINO   CROCEETTA', null],
+    ['bilocale arredato comodo al Politecnico', null],
+    ['', null],
+  ];
+  for (const [titolo, atteso] of casi) assert.equal(streetFromText(titolo), atteso, titolo);
+});
+
+test('normConflict: anche booleani e "sì"', () => {
+  assert.equal(normConflict(true), 'si');
+  assert.equal(normConflict(false), 'no');
+  // Regressione 1.9.0: un byte di controllo nella regex faceva fallire proprio "si".
+  assert.equal(normConflict('si'), 'si');
+  assert.equal(normConflict('Sì'), 'si');
+  assert.equal(normConflict('sì, solo studenti'), 'si');
+  assert.equal(normConflict('forse'), 'forse');
+  assert.equal(normConflict(null), null);
+});
 import { groupCityOf, textSignature } from '../src/core/state.js';
 import { mergeRepostedFb } from '../src/core/pipeline.js';
 import { ListingStore } from '../src/core/store.js';

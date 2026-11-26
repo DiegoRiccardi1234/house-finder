@@ -150,6 +150,49 @@ export async function geocodeAddress(
   return point;
 }
 
+const STREET_KW = /(?:^|[\s,(])(via|viale|corso|c\.so|piazza|piazzale|p\.zza|p\.za|largo|vicolo|strada|lungo\s?po|lungo\s?dora)\s+/i;
+/** Parole da annuncio che chiudono il nome della via: «VIA GORIZIA DECOROSO E GRAZIOSO BILOCALE». */
+const NOT_STREET = new Set(('monolocale bilocale trilocale quadrilocale alloggio appartamento casa attico mansarda loft stanza camera ' +
+  'arredato arredata ammobiliato ammobiliata luminoso luminosa grazioso graziosa decoroso decorosa nuovo nuova ristrutturato ' +
+  'ristrutturata spazioso spaziosa panoramico panoramica comodo comoda ampio ampia piccolo piccola bello bella bellissimo ' +
+  'signorile elegante ottimo ottima libero libera subito zona vicino vicinanze con e in a al alla euro affitto affittasi ' +
+  'mq piano box terrazzo terrazzino balcone torino ingresso cucina affittato disponibile'
+).split(' '));
+const PARTICLES = new Set(['di', 'da', 'del', 'della', 'dei', 'degli', 'delle', 'de', 'dello']);
+
+/**
+ * La via scritta in un titolo, quando l'AI non l'ha riportata: «CORSO TRAPANI ALLOGGIO CON BOX»
+ * → «corso trapani». Prudente: si ferma alla prima virgola, a una parola da annuncio o dopo 4
+ * parole, e tiene il civico solo se segue subito. `null` se non c'è una via riconoscibile.
+ */
+export function streetFromText(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const m = STREET_KW.exec(text);
+  if (!m) return null;
+  const kw = m[1]!.toLowerCase().replace(/^c\.so$/, 'corso').replace(/^p\.z?za$/, 'piazza').replace(/\s+/g, '');
+  const rest = text.slice(m.index + m[0].length);
+  const words: string[] = [];
+  let civico = '';
+  for (const raw of rest.split(/\s+/)) {
+    const comma = /[,;:|()\-–]$/.test(raw) || /^[,;:|()\-–]/.test(raw);
+    const w = raw.replace(/[,;:|()\-–.]+/g, '').toLowerCase();
+    if (!w) break;
+    if (/^\d+[a-z]?(\/\d+)?$/.test(w)) { if (words.length) civico = w; break; }
+    if (NOT_STREET.has(w)) break;
+    words.push(w);
+    if (comma || words.length >= 4) break;
+  }
+  // Una preposizione in coda non è un nome («via de» da «VIA DE GASPERI» tagliato non capita, ma prudenza).
+  while (words.length && PARTICLES.has(words[words.length - 1]!)) words.pop();
+  if (!words.length || words.every((w) => PARTICLES.has(w))) return null;
+  // Titolo con «corso Spezia, 55»: il civico dopo la virgola.
+  if (!civico) {
+    const after = rest.match(new RegExp(`^${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')}\\s*,\\s*(\\d+[a-z]?)\\b`, 'i'));
+    if (after) civico = after[1]!.toLowerCase();
+  }
+  return [kw, ...words, civico].filter(Boolean).join(' ');
+}
+
 const placesCache = new Map<string, GeocodeHit[]>();
 
 /**

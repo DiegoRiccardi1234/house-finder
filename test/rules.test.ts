@@ -94,6 +94,15 @@ test('solo studenti: voto basso scartato, voto alto «da chiedere»', () => {
   assert.equal(forse.status, 'new');
 });
 
+test('motivo del conflitto senza esito (archivio 1.9.0) vale come conflitto; «no» esplicito no', () => {
+  const perso = rec({ ai: { score: 40, verdict: '', pros: [], cons: [], worthVisit: false } }, { conflitto_inquilino: null, motivo_conflitto: 'solo studenti' });
+  const no = rec({}, { conflitto_inquilino: 'no', motivo_conflitto: null });
+  applyRules([perso, no], profile(), NOW);
+  assert.equal(perso.status, 'dismissed');
+  assert.equal(perso.auto?.rule, 'inquilino');
+  assert.equal(no.status, 'new');
+});
+
 test('senza «chi cerca casa» il conflitto inquilino non scarta niente', () => {
   const r = rec({}, { conflitto_inquilino: 'si' });
   applyRules([r], profile({ tenant: null }), NOW);

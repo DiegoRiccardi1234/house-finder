@@ -132,7 +132,9 @@ export function applyRules(records: Iterable<StoredListing>, p: Profile, nowIso:
 
     let v = checkRules(rec, p);
     let ask: { reason: string } | null = null;
-    if (!v && p.tenant && rec.fields?.conflitto_inquilino === 'si') {
+    // Annunci valutati prima della 1.9.1: motivo scritto ma esito perso dallo schema → conflitto.
+    const conflict = rec.fields?.conflitto_inquilino ?? (rec.fields?.motivo_conflitto?.trim() ? 'si' : null);
+    if (!v && p.tenant && conflict === 'si') {
       const reason = conflictReason(rec);
       if ((rec.ai?.score ?? 0) >= threshold) ask = { reason };
       else v = { rule: 'inquilino', reason };

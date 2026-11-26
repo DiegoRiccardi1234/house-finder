@@ -1,7 +1,7 @@
 import type { GeoPoint, Listing } from './types.js';
 import { dedupKey, groupCityOf, textSignature } from './state.js';
 import { applyRules, cityOf } from './rules.js';
-import { bboxOf, geocodeAddress } from './geocode.js';
+import { bboxOf, geocodeAddress, streetFromText } from './geocode.js';
 import { loadProfile, type Profile } from '../config/profile.js';
 import { citySlugOf, labelOf } from '../config/cities.js';
 import { matches, isResidential } from './match.js';
@@ -268,16 +268,18 @@ export async function locateListings(
   geocode: RunOptions['geocode'] = defaultGeocode,
 ): Promise<number> {
   if (geocode === false) return 0;
+  // L'indirizzo letto dall'AI; se manca, la via scritta nel titolo (l'AI a volte la salta).
+  const addressOf = (r: StoredListing): string | null => r.fields?.indirizzo?.trim() || streetFromText(r.listing.title);
   const targets = store
     .all()
-    .filter((r) => !r.geo && r.fields?.indirizzo && r.status !== 'dismissed')
+    .filter((r) => !r.geo && r.status !== 'dismissed' && addressOf(r))
     .slice(0, GEOCODE_PER_RUN);
   let found = 0;
   for (const rec of targets) {
     const city = cityOf(rec, profile);
     const zone = city ? profile.zones.find((z) => z.city === city) : undefined;
     const bbox = zone?.area?.polygon ? bboxOf(zone.area.polygon) : zone?.riferimento ? bboxOf(around(zone.riferimento), 0) : null;
-    const point = await geocode(rec.fields!.indirizzo!, city ? labelOf(city) : (rec.fields?.citta ?? ''), bbox);
+    const point = await geocode(addressOf(rec)!, city ? labelOf(city) : (rec.fields?.citta ?? ''), bbox);
     if (point) {
       rec.geo = point;
       found++;

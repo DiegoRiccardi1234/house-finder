@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-26
+
+### Fixed
+
+- Tenant restrictions ("solo studenti") were never recognised: an invisible control character in
+  the pattern that reads the AI answer made "si" fail, so those listings were neither dismissed nor
+  marked "Da chiedere". Boolean answers are accepted too, and listings already evaluated with a
+  reason but no outcome are treated as a conflict when rules are applied again.
+- Many listings had no position and no distance because the AI only reported the street when a
+  house number was written. The AI now reports the street alone as well, and when it does not, the
+  street written in the title ("CORSO TRAPANI ALLOGGIO CON BOX") is used.
+- A test now fails if a source file contains invisible control characters.
+
 ## [1.9.0] - 2026-11-26
 
 ### Added
