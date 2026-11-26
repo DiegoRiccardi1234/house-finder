@@ -20,7 +20,7 @@ const CACHE_PATH = process.env.GEOCACHE_PATH ?? 'state/geocache.json';
 
 type FetchFn = typeof fetch;
 
-interface CacheEntry { point: GeoPoint | null; at: string }
+interface CacheEntry { point: GeoPoint | null; at: string; v?: number }
 
 export interface GeocodeOptions {
   fetchFn?: FetchFn;
@@ -49,12 +49,18 @@ const HEADERS = {
 
 /** Quanto è preciso un risultato di Nominatim. */
 export function precisionOf(row: Pick<NominatimRow, 'addresstype' | 'type' | 'class'>): GeoPoint['precision'] {
-  const t = (row.addresstype ?? row.type ?? '').toLowerCase();
-  if (['house', 'building', 'house_number', 'amenity', 'shop', 'office'].includes(t)) return 'address';
-  if (['road', 'street', 'residential', 'pedestrian', 'square', 'tertiary', 'secondary', 'primary', 'living_street', 'unclassified'].includes(t)) return 'street';
+  // Si guardano entrambi: per un civico interpolato Nominatim dà `addresstype: "place"` e
+  // `type: "house"` (visto il 26/11 su "Via Cavour 10, Torino"), e leggere solo il primo lo
+  // declassava a quartiere, sottraendolo alla regola dell'area.
+  const ts = [row.addresstype, row.type].map((t) => (t ?? '').toLowerCase());
+  if (ts.some((t) => ['house', 'building', 'house_number', 'amenity', 'shop', 'office'].includes(t))) return 'address';
+  if (ts.some((t) => ['road', 'street', 'residential', 'pedestrian', 'square', 'tertiary', 'secondary', 'primary', 'living_street', 'unclassified'].includes(t))) return 'street';
   if (row.class === 'highway') return 'street';
   return 'zone';
 }
+
+/** Versione delle voci in cache: quelle "di quartiere" scritte prima del 1.9.2 vanno rifatte. */
+const CACHE_V = 2;
 
 let cache: Record<string, CacheEntry> | null = null;
 let cacheFile = '';
@@ -124,7 +130,9 @@ export async function geocodeAddress(
   const path = opts.cachePath ?? CACHE_PATH;
   const store = await loadCache(path);
   const k = keyOf(q);
-  if (k in store) return store[k]!.point;
+  const hit = store[k];
+  // Una voce "di quartiere" della 1.9.0/1.9.1 può essere un civico classificato male: si rifà.
+  if (hit && !(hit.point?.precision === 'zone' && (hit.v ?? 1) < CACHE_V)) return hit.point;
 
   let point: GeoPoint | null = null;
   try {
@@ -145,7 +153,7 @@ export async function geocodeAddress(
     // Servizio giù o lento: niente cache, si riprova alla prossima scansione.
     return null;
   }
-  store[k] = { point, at: new Date().toISOString() };
+  store[k] = { point, at: new Date().toISOString(), v: CACHE_V };
   await writeJsonAtomic(path, store).catch(() => {});
   return point;
 }

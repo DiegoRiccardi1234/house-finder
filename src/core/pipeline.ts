@@ -272,7 +272,10 @@ export async function locateListings(
   const addressOf = (r: StoredListing): string | null => r.fields?.indirizzo?.trim() || streetFromText(r.listing.title);
   const targets = store
     .all()
-    .filter((r) => !r.geo && r.status !== 'dismissed' && addressOf(r))
+    // Anche le posizioni "di quartiere" trovate da noi: con la 1.9.2 un civico può diventare preciso
+    // (la cache risponde subito per quelle già rifatte, senza rete).
+    .filter((r) => (!r.geo || (r.geo.source === 'geocode' && r.geo.precision === 'zone')) && r.status !== 'dismissed' && addressOf(r))
+    .sort((a, b) => Number(Boolean(a.geo)) - Number(Boolean(b.geo))) // prima chi non ha nessuna posizione
     .slice(0, GEOCODE_PER_RUN);
   let found = 0;
   for (const rec of targets) {

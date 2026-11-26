@@ -66,6 +66,8 @@ test('precisione dei risultati Nominatim', () => {
   assert.equal(precisionOf({ addresstype: 'building' }), 'address');
   assert.equal(precisionOf({ addresstype: 'road' }), 'street');
   assert.equal(precisionOf({ addresstype: 'suburb' }), 'zone');
+  // Civico interpolato, risposta vera di Nominatim per "Via Cavour 10, Torino" (26/11).
+  assert.equal(precisionOf({ addresstype: 'place', type: 'house', class: 'place' }), 'address');
 });
 
 test('geocoder: cache su disco anche dei vuoti, una sola richiesta per indirizzo', async () => {
@@ -85,6 +87,19 @@ test('geocoder: cache su disco anche dei vuoti, una sola richiesta per indirizzo
   await geocodeAddress('Via Passo Buole 10', 'Torino', null, opts);
   await geocodeAddress('via inesistente 1', 'torino', null, opts);
   assert.equal(urls.length, 2);
+});
+
+test('geocoder: una voce "di quartiere" della 1.9.0 in cache si rifà, una nuova no', async () => {
+  resetGeocoder();
+  const cachePath = join(tmpdir(), `geocache-v1-${process.pid}-${Date.now()}.json`);
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(cachePath, JSON.stringify({ 'via cavour 10 torino': { point: { lat: 45.06, lng: 7.68, precision: 'zone', source: 'geocode' }, at: 'x' } }));
+  let calls = 0;
+  const fetchFn = (async () => { calls++; return new Response(JSON.stringify([{ lat: '45.0652', lon: '7.6830', addresstype: 'place', type: 'house' }]), { status: 200 }); }) as unknown as typeof fetch;
+  const opts = { fetchFn, cachePath, delayMs: 0 };
+  assert.equal((await geocodeAddress('Via Cavour 10', 'Torino', null, opts))?.precision, 'address');
+  assert.equal((await geocodeAddress('Via Cavour 10', 'Torino', null, opts))?.precision, 'address');
+  assert.equal(calls, 1);
 });
 
 test('geocoder: servizio giù non solleva e non mette in cache', async () => {

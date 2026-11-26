@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-11-26
+
+### Fixed
+
+- Addresses with a house number found by OpenStreetMap were stored as "neighbourhood only"
+  (Nominatim answers `addresstype: place`, `type: house`), so listings far outside the drawn area
+  stayed visible. Both fields are read now; positions saved as neighbourhood by 1.9.0/1.9.1 are
+  looked up again at the next scan.
+
 ## [1.9.1] - 2026-11-26
 
 ### Fixed
