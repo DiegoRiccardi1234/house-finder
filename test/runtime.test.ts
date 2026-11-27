@@ -52,8 +52,9 @@ test('runtime: annullamento in coda non avvia seconda richiesta; timeout e shutd
   assert.equal((await runtimeChat(connection, request, options())).text, 'risposta Codex');
 });
 test('runtime: ambiente depurato e server MCP ereditati disabilitati soltanto nei parametri child', () => {
-  assert.deepEqual(runtimeEnvironment({ PATH: 'bin', CODEX_HOME: 'auth-place', OPENAI_API_KEY: 'secret', CODEX_THREAD_ID: 'thread', NODE_OPTIONS: 'inject', GROQ_API_KEY: 'secret' }),
-    { PATH: 'bin', CODEX_HOME: 'auth-place', NO_COLOR: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
+  assert.deepEqual(runtimeEnvironment({ PATH: 'bin', CODEX_HOME: 'auth-place', OPENAI_API_KEY: 'secret', CODEX_THREAD_ID: 'thread', NODE_OPTIONS: 'inject', GROQ_API_KEY: 'secret',
+    IMAP_PASS: 'posta', TELEGRAM_BOT_TOKEN: 'tg', GITHUB_TOKEN: 'gh', SystemRoot: 'C:\\Windows' }),
+  { PATH: 'bin', CODEX_HOME: 'auth-place', SystemRoot: 'C:\\Windows', NO_COLOR: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
   const config = codexOverrides('[mcp_servers.jobfinder]\ncommand="anything"\n[profiles.work.mcp_servers.other]\ncommand="other"');
   assert.equal(config['mcp_servers.jobfinder.enabled'], false); assert.equal(config['mcp_servers.other.enabled'], false);
   assert.throws(() => codexOverrides('bad = ['), RuntimeError);

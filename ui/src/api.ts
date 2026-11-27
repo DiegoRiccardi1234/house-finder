@@ -37,6 +37,19 @@ export type FbSessionDetails = FbSession & {
   profileReady?: boolean;
 };
 
+/**
+ * Un URL preso da una pagina esterna (annuncio, gruppo) è sicuro da mettere in un link solo se
+ * è http(s): React 18 non blocca `javascript:` negli `href`. Il resto diventa un link morto.
+ */
+export function safeHref(url: string | null | undefined): string {
+  try {
+    const u = new URL(url ?? '', window.location.href);
+    return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : '#';
+  } catch {
+    return '#';
+  }
+}
+
 async function json<T>(r: Response): Promise<T> {
   if (!r.ok) {
     const body = await r.json().catch(() => ({})) as { detail?: string; error?: string };
@@ -187,8 +200,8 @@ export const api = {
   assistSearch: (text: string) =>
     fetch('/api/assist/search', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ text }) }),
 
-  zoneSuggestions: (city: string) =>
-    fetch(`/api/assist/zones/${encodeURIComponent(city)}`).then((r) => json<ZoneSuggestion>(r)),
+  zoneSuggestions: (city: string, ai = false) =>
+    fetch(`/api/assist/zones/${encodeURIComponent(city)}${ai ? '?ai=1' : ''}`).then((r) => json<ZoneSuggestion>(r)),
 
   getProfile: () => fetch('/api/config/profile').then((r) => json<ProfileState>(r)),
   putProfile: (p: Profile) =>
@@ -205,6 +218,8 @@ export const api = {
     fetch('/api/config/searches', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(data) }),
 
   getFacebook: () => fetch('/api/config/facebook').then((r) => json<unknown>(r)),
+  // Passa da `json()`: un 409 (scansione in corso) o un 400 devono diventare un errore visibile,
+  // non un «Salvato.» con i gruppi mai scritti.
   putFacebook: (data: unknown) =>
-    fetch('/api/config/facebook', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(data) }),
+    fetch('/api/config/facebook', { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(data) }).then((r) => json<unknown>(r)),
 };

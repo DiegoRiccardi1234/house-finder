@@ -45,6 +45,15 @@ test('parsePrice: prezzo da testo libero (ancorato a €/euro)', () => {
   assert.equal(parsePrice(null), null);
 });
 
+test('parsePrice: il numero dopo un a capo o uno spazio non si attacca al prezzo', () => {
+  // Card Marketplace tipica: prima riga prezzo, seconda riga le camere.
+  assert.equal(parsePrice('€650\n2 camere da letto 1 bagno'), 650);
+  assert.equal(parsePrice('€ 450 2 mensilità deposito'), 450);
+  assert.equal(parsePrice('bilocale piano 2 450€ al mese'), 450);
+  assert.equal(parsePrice('€1.200 spese incluse'), 1200);
+  assert.equal(parsePrice('affitto 650,00 euro'), 650);
+});
+
 test('firstLine: prima riga non vuota, troncata', () => {
   assert.equal(firstLine('  \n\nCiao mondo\nseconda riga'), 'Ciao mondo');
   assert.equal(firstLine('unica'), 'unica');

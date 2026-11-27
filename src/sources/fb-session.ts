@@ -14,6 +14,22 @@ export async function isLoggedIn(ctx: BrowserContext): Promise<boolean> {
 }
 
 /**
+ * La finestra di Facebook è stata chiusa (a mano o perché il PC si spegne): da lì in poi ogni
+ * gruppo fallirebbe con un errore diverso e confuso. Si riconosce e si ferma tutto in una volta.
+ */
+export class BrowserClosedError extends Error {
+  constructor() {
+    super('la finestra del browser è stata chiusa durante la scansione: i gruppi rimasti non sono stati letti');
+    this.name = 'BrowserClosedError';
+  }
+}
+
+export function isBrowserClosed(e: unknown): boolean {
+  return e instanceof BrowserClosedError
+    || /Target page, context or browser has been closed|Browser has been closed|browser has disconnected/i.test((e as Error)?.message ?? '');
+}
+
+/**
  * Profilo del browser dedicato all'app (`state/fb-browser-profile/`).
  *
  * Esiste perché un profilo nuovo a ogni accesso è, per Facebook, un dispositivo mai visto: chiede

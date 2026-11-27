@@ -3,6 +3,7 @@ import type { Listing } from '../core/types.js';
 import type { FbGroup } from '../config/facebook.js';
 import { gotoResilient, autoScroll } from './page-utils.js';
 import { settleFacebookContent } from './fb-load.js';
+import { BrowserClosedError, isBrowserClosed } from './fb-session.js';
 import { parsePostId, parsePrice, smartTitle, cleanText, stripFbChrome, looksLikeListing, isShortTerm } from './fb-parse.js';
 
 interface RawPost {
@@ -47,7 +48,13 @@ export async function scrapeGroups(
 ): Promise<Listing[]> {
   const out: Listing[] = [];
   for (const g of groups) {
-    const page = await ctx.newPage();
+    let page: Page;
+    try {
+      page = await ctx.newPage();
+    } catch (e) {
+      if (isBrowserClosed(e)) throw new BrowserClosedError();
+      throw e;
+    }
     try {
       const url = g.url.replace(/\/?$/, '/') + '?sorting_setting=CHRONOLOGICAL';
       await gotoResilient(page, url);
@@ -102,10 +109,11 @@ export async function scrapeGroups(
       }
       console.log(`[fb-group] ${g.name}: ${raw.size} article · ${seen.size} post con id`);
     } catch (e) {
+      if (isBrowserClosed(e)) throw new BrowserClosedError();
       console.error(`[fb-group] ${g.name} ERRORE:`, (e as Error).message);
       onError?.(`gruppo ${g.name}: ${(e as Error).message}`);
     } finally {
-      if (!page.isClosed()) await page.close();
+      if (!page.isClosed()) await page.close().catch(() => {});
     }
   }
   return out;

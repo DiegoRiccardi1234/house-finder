@@ -290,8 +290,11 @@ export function createSetupRouter(jobs: JobManager, onProfileSaved?: (p: Profile
     invalidateProfile();
     // Le regole dipendono dal profilo: un tetto più alto o un'area più larga rimette in lista
     // quello che prima era fuori, senza aspettare la prossima scansione.
-    await onProfileSaved?.(profile).catch(() => {});
+    // `null` = scansione in corso: le regole le applica lei alla fine, e la UI non deve dire
+    // «ricontrollati» quando non è ancora vero.
+    const applied = await onProfileSaved?.(profile).catch(() => null);
     res.json({
+      rulesApplied: applied != null,
       profile,
       generated: renderCriteria(profile),
       configured: profileConfigured(),

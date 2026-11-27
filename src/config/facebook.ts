@@ -26,8 +26,8 @@ export interface FbMarketTarget {
 export const FB_STATE_PATH = process.env.FB_STATE_PATH ?? 'state/fb-state.json';
 export const FB_MAX_SCROLL = Number(process.env.FB_MAX_SCROLL ?? '6'); // feed virtualizzato: più scroll = più post accumulati
 
-// Placeholder: sostituisci con i gruppi che hai joinato, in `data/facebook.json`
-// (o in `data/local/facebook.json`, che ha la precedenza e non è versionato).
+// Placeholder: i gruppi veri vanno in `data/local/facebook.json` (dalla UI ci finiscono da soli).
+// Non in `data/facebook.json`: è un esempio versionato, e nel bundle l'aggiornamento lo riscrive.
 interface FbConfig {
   groups: FbGroup[];
   market: FbMarketTarget[];

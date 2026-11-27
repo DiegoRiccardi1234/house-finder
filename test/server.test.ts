@@ -46,6 +46,43 @@ test('GET /api/listings: tutti + filtri + sort', async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test('solo locale: Host di un altro dominio o Origin di un altro sito vengono rifiutati', async () => {
+  const { dir, app } = await setup();
+  // DNS rebinding: la pagina di un sito fa risolvere il suo dominio a 127.0.0.1.
+  const rebinding = await request(app).get('/api/listings').set('Host', 'evil.example:3987');
+  assert.equal(rebinding.status, 403);
+  // Una pagina di un altro sito che prova a modificare la config.
+  const cross = await request(app).post('/api/listings/rules').set('Origin', 'https://evil.example').send({});
+  assert.equal(cross.status, 403);
+  // La nostra UI (stessa origine o Vite in sviluppo su un'altra porta locale) passa.
+  assert.equal((await request(app).get('/api/listings').set('Host', 'localhost:3987')).status, 200);
+  assert.equal((await request(app).get('/api/listings').set('Origin', 'http://localhost:5173')).status, 200);
+  await rm(dir, { recursive: true, force: true });
+});
+
+test('handler async che fallisce (anche in un router figlio): 500 JSON, nessun reject sfuggito', async () => {
+  const { default: express, Router } = await import('express');
+  const { catchAsyncRoutes } = await import('../src/server/app.js');
+  const app = express();
+  const child = Router();
+  child.get('/boom', async () => { throw new Error('file rotto'); });
+  app.use('/api', child);
+  app.get('/top', async () => { throw new Error('altro'); });
+  app.use((_e: unknown, _q: unknown, res: import('express').Response, _n: unknown) => { res.status(500).json({ error: 'errore interno' }); });
+  catchAsyncRoutes(app);
+  let sfuggiti = 0;
+  const onRej = () => { sfuggiti++; };
+  process.on('unhandledRejection', onRej);
+  try {
+    assert.equal((await request(app).get('/api/boom')).status, 500);
+    assert.equal((await request(app).get('/top')).status, 500);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(sfuggiti, 0);
+  } finally {
+    process.off('unhandledRejection', onRej);
+  }
+});
+
 test('GET /api/meta: i canali scraper seguono la presenza dei browser', async () => {
   const { dir, app } = await setup();
   const res = await request(app).get('/api/meta');

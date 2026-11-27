@@ -32,7 +32,9 @@ export function refMarker(r: Landmark): L.Marker {
     icon: L.divIcon({ className: '', html: '<div class="hf-ref"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }),
     keyboard: false,
     title: r.label,
-  }).bindTooltip(r.label, { direction: 'top', offset: [0, -10] });
+  // Testo, non HTML: con una stringa Leaflet la mette in `innerHTML`, e l'etichetta la può
+  // scrivere anche una proposta dell'agente.
+  }).bindTooltip(Object.assign(document.createElement('span'), { textContent: r.label }), { direction: 'top', offset: [0, -10] });
 }
 
 export function areaLayer(polygon: LatLng[]): L.Polygon {

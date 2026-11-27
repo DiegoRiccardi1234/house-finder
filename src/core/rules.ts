@@ -2,7 +2,7 @@ import type { AutoDecision, StoredListing } from './store.js';
 import type { CityZones, Profile, SearchRow } from '../config/profile.js';
 import { DEFAULT_ASK_THRESHOLD } from '../config/profile.js';
 import { citySlugOf } from '../config/cities.js';
-import { insidePolygon, preciseEnough } from './geo.js';
+import { insidePolygon, kmOutsidePolygon, preciseEnough, ZONE_FAR_KM } from './geo.js';
 
 /**
  * Le regole del profilo, applicate IN CODICE.
@@ -33,12 +33,16 @@ const NOT_RENTAL = /\b(vendita|in vendita|casa vacanz|affitto breve|vacanza|b&b|
 const SHARED = /posto letto|condivis|coinquilin/i;
 const ROOM_START = /^\s*(stanz[ae]|camer[ae])\b/i;
 const NOT_A_ROOM = /indipendent|monolocal|bilocal|loft|mini ?appartament/i;
+const ROOM_WORD = /\bstanz[ae]|posto letto|\bcamera (singola|doppia|in)\b/i;
+const WHOLE_HOME_START =/^\s*(monolocal|bilocal|trilocal|quadrilocal|appartament|attico|loft|villa|casa indipendente|\d\s*locali)/i;
 
 /** La tipologia descrive una stanza in casa d'altri, non una casa intera? */
 export function isRoomOffer(tipologia: string | null | undefined, title = ''): boolean {
   const t = (tipologia ?? '').toLowerCase();
   if (t) {
-    if (SHARED.test(t)) return true;
+    // «bilocale con giardino condiviso», «trilocale ideale per condivisione»: è una casa intera.
+    // «appartamento condiviso, stanza singola» no: lì si affitta la stanza.
+    if (SHARED.test(t)) return ROOM_WORD.test(t) || !WHOLE_HOME_START.test(t);
     return ROOM_START.test(t) && !NOT_A_ROOM.test(t);
   }
   // Senza tipologia dall'AI si guarda solo l'inizio del titolo, come `matches()` per gli scraper.
@@ -47,6 +51,10 @@ export function isRoomOffer(tipologia: string | null | undefined, title = ''): b
 
 const wantsRooms = (s: SearchRow): boolean =>
   s.tipo === 'stanza' || (!s.tipo && /stanza|camera singola/i.test(s.label));
+
+/** Chi cerca una stanza o una casa da condividere accetta offerte in condivisione. */
+const acceptsShared = (s: SearchRow): boolean =>
+  wantsRooms(s) || s.tipo === 'condivisa' || (!s.tipo && /condivis/i.test(s.label));
 
 /** Le ricerche che valgono per l'annuncio: quelle della sua città, o tutte se non si sa. */
 function searchesFor(city: string | null, p: Profile): SearchRow[] {
@@ -81,7 +89,7 @@ export function checkRules(rec: StoredListing, p: Profile): Violation | null {
     return { rule: 'tipo', reason: `${tipologia}: non è un affitto per viverci` };
   }
 
-  if (!searches.some(wantsRooms) && isRoomOffer(tipologia, rec.listing.title)) {
+  if (!searches.some(acceptsShared) && isRoomOffer(tipologia, rec.listing.title)) {
     return { rule: 'stanza', reason: 'stanza in casa condivisa: cerchi una casa intera' };
   }
 
@@ -102,8 +110,17 @@ export function checkRules(rec: StoredListing, p: Profile): Violation | null {
   }
 
   const area = zonesFor(city, p)?.area?.polygon;
-  if (area && area.length >= 3 && preciseEnough(rec.geo) && !insidePolygon(rec.geo, area)) {
-    return { rule: 'area', reason: 'fuori dall\'area disegnata sulla mappa' };
+  if (area && area.length >= 3 && rec.geo) {
+    if (preciseEnough(rec.geo) && !insidePolygon(rec.geo, area)) {
+      return { rule: 'area', reason: 'fuori dall\'area disegnata sulla mappa' };
+    }
+    // Solo il quartiere: impreciso, quindi si scarta soltanto se è lontano anche col margine.
+    if (rec.geo.precision === 'zone') {
+      const km = kmOutsidePolygon(rec.geo, area);
+      if (km > ZONE_FAR_KM) {
+        return { rule: 'area', reason: `quartiere a ${km.toFixed(1).replace('.', ',')} km dall'area disegnata` };
+      }
+    }
   }
 
   return null;
@@ -127,7 +144,8 @@ export function applyRules(records: Iterable<StoredListing>, p: Profile, nowIso:
   const threshold = p.askThreshold ?? DEFAULT_ASK_THRESHOLD;
 
   for (const rec of records) {
-    const managed = rec.status === 'new' || (rec.status === 'dismissed' && rec.auto != null);
+    // Uno stato scelto a mano (anche «nuovo», cioè riattivato) non si tocca mai.
+    const managed = !rec.manualAt && (rec.status === 'new' || (rec.status === 'dismissed' && rec.auto != null));
     if (!managed) continue;
 
     let v = checkRules(rec, p);

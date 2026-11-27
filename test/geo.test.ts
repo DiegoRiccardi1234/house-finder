@@ -34,6 +34,24 @@ test('normConflict: anche booleani e "sì"', () => {
   assert.equal(normConflict('sì, solo studenti'), 'si');
   assert.equal(normConflict('forse'), 'forse');
   assert.equal(normConflict(null), null);
+  // Risposta non riconosciuta: un dubbio, mai uno scarto.
+  assert.equal(normConflict('possibile'), 'forse');
+  assert.equal(normConflict('n/d'), 'forse');
+  assert.equal(normConflict('nessuno'), 'no');
+  assert.equal(normConflict('non in conflitto'), 'no');
+});
+
+test('normalizzatori AI: arredato e ascensore letti a parole intere', async () => {
+  const { normArredato, normBool } = await import('../src/ai/score.js');
+  assert.equal(normArredato('arredato moderno'), 'sì');
+  assert.equal(normArredato('arredato, in buono stato'), 'sì');
+  assert.equal(normArredato('no'), 'no');
+  assert.equal(normArredato('non arredato'), 'no');
+  assert.equal(normArredato('parzialmente arredato'), 'parziale');
+  assert.equal(normBool('senza ascensore'), false);
+  assert.equal(normBool('sì'), true);
+  assert.equal(normBool('si, con ascensore'), true);
+  assert.equal(normBool('no'), false);
 });
 import { groupCityOf, textSignature } from '../src/core/state.js';
 import { mergeRepostedFb } from '../src/core/pipeline.js';

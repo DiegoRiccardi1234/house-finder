@@ -52,14 +52,20 @@ async function sha256(file: string): Promise<string> {
   return hash.digest('hex');
 }
 
+/** Il `tar` di Windows per percorso assoluto: quello GNU di Git nel PATH legge `D:` come un host. */
+const TAR = process.platform === 'win32'
+  ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
+  : 'tar';
+
 /** Elenca le voci dello zip. `tar.exe` c'è su Windows 10+ e legge gli zip. */
 async function listZip(zip: string): Promise<string[]> {
   try {
-    const { stdout } = await run('tar', ['-tf', zip], { maxBuffer: 32 * 1024 * 1024 });
+    const { stdout } = await run(TAR, ['-tf', zip], { maxBuffer: 32 * 1024 * 1024 });
     return stdout.split(/\r?\n/).filter(Boolean);
   } catch {
+    // Apostrofo raddoppiato: è la sola sequenza che chiude una stringa PowerShell fra apici.
     const ps = `Add-Type -AssemblyName System.IO.Compression.FileSystem; ` +
-      `[IO.Compression.ZipFile]::OpenRead('${zip}').Entries | ForEach-Object { $_.FullName }`;
+      `[IO.Compression.ZipFile]::OpenRead('${zip.replace(/'/g, "''")}').Entries | ForEach-Object { $_.FullName }`;
     const { stdout } = await run('powershell', ['-NoProfile', '-Command', ps], {
       maxBuffer: 32 * 1024 * 1024,
     });

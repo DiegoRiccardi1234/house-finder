@@ -30,6 +30,12 @@ export class Mailbox {
       auth: { user: s.user, pass: s.pass },
       logger: false,
     });
+    // La connessione resta aperta per tutta la valutazione AI (minuti): se il server di posta la
+    // chiude, ImapFlow emette 'error', e un 'error' senza ascoltatore abbatte il processo.
+    // Qui si registra e basta: la prossima operazione fallisce e la mail resta non letta.
+    this.client.on('error', (e: Error) => {
+      console.warn(`[email] connessione IMAP interrotta: ${e.message}`);
+    });
   }
 
   /** True se le credenziali IMAP sono configurate. */

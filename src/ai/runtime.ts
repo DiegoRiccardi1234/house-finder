@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
@@ -35,7 +35,10 @@ export function runtimeEnvironment(source: NodeJS.ProcessEnv = process.env): Nod
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(source)) {
     if (['CODEX_HOME', 'CLAUDE_CONFIG_DIR'].includes(key.toUpperCase())) { env[key] = value; continue; }
-    if (/^(OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_)/i.test(key) || /API_KEY|AUTH_TOKEN|ACCESS_TOKEN|BEARER_TOKEN|SESSION_TOKEN|SECRET_ACCESS_KEY/i.test(key) ||
+    // Anche i segreti dell'app (password IMAP, token Telegram, sessione FB): il CLI esterno non
+    // ne ha bisogno, e un processo di terzi non deve nemmeno vederli nel proprio ambiente.
+    if (/^(OPENAI_|ANTHROPIC_|CODEX_|CLAUDE_|IMAP_|MAIL_|TELEGRAM_|FB_)/i.test(key) ||
+      /API_KEY|TOKEN|SECRET|PASSWORD|PASSWD|_PASS$|CREDENTIAL/i.test(key) ||
       /^(NODE_OPTIONS|NODE_PATH|RUST_LOG|RUST_BACKTRACE|PYTHONPATH)$/i.test(key)) continue;
     env[key] = value;
   }
@@ -322,7 +325,16 @@ export async function runtimeChat(connection: AiConnection, request: RuntimeRequ
         const auth = await once([...base, 'auth', 'status', '--json']);
         if (!auth.loggedIn) throw new RuntimeError('not_authenticated');
         if (!['claude.ai', 'oauth_token'].includes(auth.authMethod)) throw new RuntimeError('subscription_required');
-        const result = await once([...base, '-p', '--output-format', 'json', '--no-session-persistence', '--system-prompt', instructions,
+        // Windows tronca la riga di comando a 32.767 caratteri: il contesto della chat (profilo,
+        // annunci selezionati) la supera e `spawn` fallisce prima di partire. Oltre una soglia
+        // prudente le istruzioni passano da un file nella cartella temporanea della chiamata.
+        let systemArgs = ['--system-prompt', instructions];
+        if (instructions.length > 8_000) {
+          const promptFile = join(cwd, 'system-prompt.txt');
+          await writeFile(promptFile, instructions, 'utf8');
+          systemArgs = ['--system-prompt-file', promptFile];
+        }
+        const result = await once([...base, '-p', '--output-format', 'json', '--no-session-persistence', ...systemArgs,
           ...(connection.model ? ['--model', connection.model] : []), ...(wantsJson ? ['--json-schema', JSON.stringify(ENVELOPE)] : [])], prompt);
         if (/max_tokens|max_output_tokens|length/.test(result.stop_reason ?? '') || /error_max_turns|error_max_budget|error_max_structured/.test(result.subtype ?? '')) throw new RuntimeError('truncated');
         if (result.is_error || result.subtype && result.subtype !== 'success') throw safeError(result);

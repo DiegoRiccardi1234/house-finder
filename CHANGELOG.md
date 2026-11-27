@@ -6,6 +6,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.4] - 2026-11-27
+
+### Security
+
+- The local server now refuses requests whose `Host` is not localhost (DNS rebinding) or whose
+  `Origin` is another site. Before, only the agent routes checked it, so a web page could read the
+  archive or send stored API keys and the mail password to a server of its choice.
+- Changing a provider address or the mail server without entering a new key/password now drops the
+  stored one, so it is never sent to the new host.
+- The image proxy follows redirects only towards allowed hosts, serves only images (no SVG/HTML),
+  and sets `nosniff` and a sandboxing CSP.
+- Links taken from listings are used only if they are `http(s)`; map tooltips are plain text.
+- The Claude/Codex CLI no longer receives the app's secrets (IMAP password, Telegram token, …) in
+  its environment.
+- `.gitignore` now covers private backups (`.house-finder-private/`) and session/key files
+  wherever they are.
+
+### Fixed
+
+- A listing the user put back among the new ones was dismissed again by the rules at the next
+  scan or profile save. A manual choice is now remembered and the rules never touch it.
+- Facebook prices: the next number after a line break or a space was glued to the price
+  ("€650⏎2 camere" became 6502 €) and the listing was dismissed as too expensive.
+- "Arredato moderno" was read as *not* furnished, "senza ascensore" as *with* lift.
+- An unrecognised tenant-conflict answer ("possibile", "n/d") counted as a conflict and could
+  dismiss the listing; it is now "forse" (doubt never dismisses).
+- "Bilocale con giardino condiviso" was dismissed as a room in a shared flat.
+- Listings located only by neighbourhood are now dismissed when the neighbourhood is more than
+  1.5 km outside the drawn area; nearer ones stay, marked "posizione approssimata".
+- A portal's neighbourhood-only position no longer replaces a street/house position already found,
+  and an address written in the listing can now improve it.
+- An alert e-mail for a listing already scraped no longer wipes its description, zone and photo.
+- An async error in a route (unreadable config file, antivirus locking a file) crashed the whole
+  server, scan included. Every route now answers 500 instead; IMAP disconnections are logged.
+- When the Facebook window is closed during a scan, the scan stops with one clear message instead
+  of one error per remaining group.
+- An unreadable `providers.json`/`mail.json` (e.g. a BOM added by an editor) was treated as empty,
+  and the next save wiped every other key. Saving is now refused until the file is fixed.
+- Paid providers configured only through environment variables are never used as a silent
+  fallback; small models with unknown health go to the end of the chain; chat and quick questions
+  penalise models that truncate or rate-limit.
+- Long chat context no longer exceeds the Windows command-line limit with a Claude connection.
+- Saving Facebook groups showed "Salvato." even when the server refused; a group without a city
+  was silently dropped. The AI-generated neighbourhood list is requested only on a button press.
+- Profile changes saved during a scan are applied when the scan ends; the message says so.
+- Floor filter: basements ("-1", "S1") count as ground floor, "5 su 5" as top floor. The "only in
+  the area" filter no longer hides listings of cities without a drawn area.
+- The area map opens on the city instead of the whole of Italy for a new user; the city filter
+  appears without reloading after the first search is saved.
+- The updater uses Windows' own `tar.exe` instead of whichever `tar` comes first in `PATH`.
+- README: search files edited by hand belong in `data/local/` — the copies in `data/` are examples
+  and an update overwrites them.
+
 ## [1.9.3] - 2026-11-26
 
 ### Fixed

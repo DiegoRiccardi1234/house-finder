@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import type { CityZones, StoredListing } from '../../types';
 import { areaLayer, createMap, ITALY, refMarker, themeColor } from './leafletBase';
+import { safeHref } from '../../api';
 
 /**
  * Gli annunci sulla mappa: un pallino per annuncio, colorato per voto, con l'area disegnata e il
@@ -58,7 +59,7 @@ export default function ListingsMap({ items, zones }: { items: StoredListing[]; 
       });
       const box = document.createElement('div');
       const a = document.createElement('a');
-      a.href = r.listing.url;
+      a.href = safeHref(r.listing.url);
       a.target = '_blank';
       a.rel = 'noreferrer';
       a.textContent = r.listing.title;

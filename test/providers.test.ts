@@ -118,6 +118,39 @@ test('primario e ordine di failover: il primario apre la lista', async () => {
   });
 });
 
+test('failover: un provider a pagamento non entra mai come ripiego', async () => {
+  await withDataDir(async () => {
+    for (const k of CATALOG) delete process.env[k.envVar];
+    await saveKey('openrouter', 'free');
+    // Una key di sistema messa per altri programmi: non deve diventare una spesa silenziosa.
+    process.env[specOf('openai').envVar] = 'sk-sistema';
+    await setPrimary('openrouter');
+    assert.deepEqual(providerOrder(), ['openrouter']);
+    // Scelto come primario dall'utente, invece, si usa.
+    await setPrimary('openai');
+    assert.equal(providerOrder()[0], 'openai');
+  });
+});
+
+test('file chiavi illeggibile: niente salvataggi che cancellano le altre chiavi', async () => {
+  await withDataDir(async (dir) => {
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(join(dir, 'local', 'providers.json'), '{ "keys": { "groq": "a", ', 'utf8');
+    invalidateCreds();
+    await assert.rejects(saveKey('openrouter', 'b'), /non è leggibile/);
+    assert.equal(await readFile(join(dir, 'local', 'providers.json'), 'utf8'), '{ "keys": { "groq": "a", ');
+  });
+});
+
+test('indirizzo del provider cambiato senza key nuova: la key salvata non parte verso il nuovo', async () => {
+  await withDataDir(async () => {
+    for (const k of CATALOG) delete process.env[k.envVar];
+    await saveKey('openrouter', 'segreta');
+    await saveKey('openrouter', undefined, 'https://altro.example/v1');
+    assert.equal(keyFor('openrouter'), '');
+  });
+});
+
 test('primario non configurato: si ripiega sul primo disponibile', async () => {
   await withDataDir(async () => {
     for (const k of CATALOG) delete process.env[k.envVar];

@@ -101,19 +101,25 @@ function isRetryable(e: unknown): boolean {
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function normBool(v: boolean | string | null): boolean | null {
+// Fine parola che funziona anche con le lettere accentate (`\b` di JS non le conosce).
+const END = '(?![a-zà-ù])';
+
+export function normBool(v: boolean | string | null): boolean | null {
   if (typeof v === 'boolean') return v;
   if (typeof v !== 'string') return null;
-  if (/^(sì|si|s|yes|true|con ascensore|presente)/i.test(v.trim())) return true;
-  if (/^(no|senza|false|assente)/i.test(v.trim())) return false;
+  const s = v.trim().toLowerCase();
+  // Prima il no: «senza ascensore» comincia con una «s» e prima veniva letto come sì.
+  if (new RegExp(`^(no|senza|false|assente|non presente)${END}`).test(s)) return false;
+  if (new RegExp(`^(sì|si|yes|true|con|presente|c'è)${END}`).test(s)) return true;
   return null;
 }
-function normArredato(v: string | null): Furnished | null {
+export function normArredato(v: string | null): Furnished | null {
   if (!v) return null;
   const s = v.toLowerCase();
-  if (/non arred|no\b|vuoto|non ammobil|senza arred/.test(s)) return 'no';
-  if (/parzial/.test(s)) return 'parziale';
-  if (/arred|ammobil|sì|si\b/.test(s)) return 'sì';
+  // «no» solo come parola intera: «arredato moderno», «buono», «piano» finiscono in "no".
+  if (new RegExp(`non arred|(^|[^a-zà-ù])no${END}|vuoto|non ammobil|senza arred|libero da mobili`).test(s)) return 'no';
+  if (/parzial|semi[- ]?arred/.test(s)) return 'parziale';
+  if (new RegExp(`arred|ammobil|(^|[^a-zà-ù])(sì|si)${END}`).test(s)) return 'sì';
   return null;
 }
 function normContatto(v: string | null): ContactType | null {
@@ -129,8 +135,10 @@ export function normConflict(v: string | boolean | null | undefined): TenantConf
   const s = v.trim().toLowerCase();
   if (/^(si|sì|yes|true)(?![a-zà-ù])/.test(s)) return 'si';
   if (/^(forse|maybe|probabil|ambigu)/.test(s)) return 'forse';
-  if (/^(no|false|nessun)/.test(s)) return 'no';
-  return null;
+  if (/^(?:no(?![a-zà-ù])|non\s|false|nessun)/.test(s)) return 'no';
+  // Risposta presente ma non riconosciuta («possibile», «incerto», «n/d»): è un dubbio, non un
+  // «sì». Prima diventava un conflitto pieno e, col voto sotto soglia, uno scarto automatico.
+  return 'forse';
 }
 const toStr = (v: string | number | null): string | null => (v == null ? null : String(v).trim() || null);
 

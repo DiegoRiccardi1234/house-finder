@@ -240,6 +240,8 @@ export interface ZoneSuggestion {
   zones: string[];
   source: 'incluso' | 'ai' | 'nessuna';
   detail?: string;
+  /** Nessun elenco incluso, ma l'AI può proporli: si chiede col pulsante. */
+  aiAvailable?: boolean;
 }
 
 export interface CityZones {
@@ -266,6 +268,8 @@ export interface ProfileState {
   configured: boolean;
   /** Righe incomplete non salvate: prima sparivano in silenzio. */
   skipped?: string[];
+  /** false = scansione in corso: le regole nuove le applica lei quando finisce. */
+  rulesApplied?: boolean;
 }
 
 export interface MailConfig {

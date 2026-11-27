@@ -3,6 +3,7 @@ import { buildChainForTask } from './failover.js';
 import { getProvider } from './providers/registry.js';
 import { recordPenalty } from './endpoint-health.js';
 import { refKey } from './providers/types.js';
+import { classifyFailure } from './providers/errors.js';
 import { extractJson } from './score.js';
 import { hasExplicitRoute, routeConfigured, taskChat, type AiTask } from './task-routing.js';
 
@@ -70,9 +71,10 @@ export async function ask<T>(
       // JSON valido ma di forma sbagliata: è lo stesso difetto del troncamento visto da qui, e
       // insistere sullo stesso modello lo ripeterebbe. Si penalizza e si passa al successivo.
       recordPenalty(refKey(ref), 'malformed');
-    } catch {
-      // Il provider tipizza già troncamento, vuoto e 429; qui interessa solo passare oltre.
-      recordPenalty(refKey(ref), 'json_fail');
+    } catch (e) {
+      // Il provider tipizza già troncamento, vuoto e 429: la penalità deve dire quale dei tre,
+      // perché il troncamento dura un'ora e il JSON storto pochi minuti.
+      recordPenalty(refKey(ref), classifyFailure(e) ?? 'json_fail');
     }
   }
   return null;

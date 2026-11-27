@@ -5,6 +5,7 @@ import { Badge } from '../ui/Badge';
 import { Card } from '../ui/Card';
 import { Kicker } from '../ui/Kicker';
 import { cx } from '../ui/cx';
+import { safeHref } from '../api';
 
 function FieldChips({ f }: { f: ListingFields }) {
   return (
@@ -189,7 +190,7 @@ export function ListingCard({
       <div className="flex flex-1 flex-col gap-2 p-4">
         <div className="flex items-start gap-2">
           <a
-            href={l.url}
+            href={safeHref(l.url)}
             target="_blank"
             rel="noreferrer"
             className="line-clamp-2 flex-1 text-base leading-snug text-ink hover:text-accent hover:underline"
@@ -243,7 +244,7 @@ export function ListingCard({
           <p className="text-xs text-faint">
             Pubblicato anche in{' '}
             {rec.alsoIn.map((u, i) => (
-              <a key={u} href={u} target="_blank" rel="noreferrer" className="underline hover:text-accent">
+              <a key={u} href={safeHref(u)} target="_blank" rel="noreferrer" className="underline hover:text-accent">
                 {i === 0 ? '' : ', '}altro gruppo {i + 1}
               </a>
             ))}

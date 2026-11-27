@@ -79,6 +79,13 @@ export default function AreaEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [riferimento?.lat, riferimento?.lng]);
 
+  // Il centro della città arriva dopo (si chiede al server): per chi non ha ancora disegnato né
+  // scelto un riferimento, la mappa deve spostarsi lì invece di restare sull'Italia intera.
+  useEffect(() => {
+    if (center && map.current && polygon.length === 0 && !riferimento) map.current.setView(center, 13);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [center?.[0], center?.[1]]);
+
   return (
     <div className="flex flex-col gap-2">
       <div ref={el} className="hf-map h-[360px] w-full sm:h-[440px]" aria-label="Mappa: clicca per aggiungere i punti dell'area" />

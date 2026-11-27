@@ -270,12 +270,12 @@ export function rankModels(candidates: string[], healths: Map<string, ModelHealt
   const unknown: string[] = [];
   for (const c of candidates) {
     const h = healths.get(c);
+    const meta = parseModelMeta(c);
     if (!h) {
       unknown.push(c);
       continue;
     }
     if (!(h.alive && h.uptime5m != null && h.uptime5m >= minUptime)) continue;
-    const meta = parseModelMeta(c);
     if (meta.sizeB != null && meta.sizeB < minSizeB) continue; // quality-floor: niente toy
     eligible.push(c);
   }
@@ -305,7 +305,13 @@ export function rankModels(candidates: string[], healths: Map<string, ModelHealt
 
   // Anche i provider senza sonda pubblica imparano dai fallimenti del task.
   // Senza penalità la lista sconosciuta conserva esattamente l'ordine originale.
-  unknown.sort((a, b) => penaltyOf(a) - penaltyOf(b));
+  // A salute sconosciuta il quality-floor non esclude (un provider potrebbe restare senza modelli,
+  // es. la vision di Groq è un 17B) ma mette i "toy" in fondo: un 8B arriva solo dopo il 70B.
+  const toy = (s: string): number => {
+    const size = parseModelMeta(s).sizeB;
+    return size != null && size < minSizeB ? 1 : 0;
+  };
+  unknown.sort((a, b) => penaltyOf(a) - penaltyOf(b) || toy(a) - toy(b));
   return [...eligible, ...unknown];
 }
 

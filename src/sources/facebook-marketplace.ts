@@ -3,6 +3,7 @@ import type { Listing } from '../core/types.js';
 import type { FbMarketTarget } from '../config/facebook.js';
 import { gotoResilient, autoScroll } from './page-utils.js';
 import { settleFacebookContent } from './fb-load.js';
+import { BrowserClosedError, isBrowserClosed } from './fb-session.js';
 import { parseMarketplaceId, parsePrice, smartTitle, cleanText, looksLikeListing, isShortTerm } from './fb-parse.js';
 
 interface RawCard {
@@ -33,7 +34,13 @@ export async function scrapeMarketplace(
 ): Promise<Listing[]> {
   const out: Listing[] = [];
   for (const t of targets) {
-    const page = await ctx.newPage();
+    let page: Page;
+    try {
+      page = await ctx.newPage();
+    } catch (e) {
+      if (isBrowserClosed(e)) throw new BrowserClosedError();
+      throw e;
+    }
     try {
       await gotoResilient(page, t.url);
       await page.waitForSelector('a[href*="/marketplace/item/"]', { state: 'attached', timeout: 15_000 });
@@ -86,10 +93,11 @@ export async function scrapeMarketplace(
       }
       console.log(`[fb-market] ${t.name}: ${raw.size} card · ${seen.size} item`);
     } catch (e) {
+      if (isBrowserClosed(e)) throw new BrowserClosedError();
       console.error(`[fb-market] ${t.name} ERRORE:`, (e as Error).message);
       onError?.(`marketplace ${t.name}: ${(e as Error).message}`);
     } finally {
-      if (!page.isClosed()) await page.close();
+      if (!page.isClosed()) await page.close().catch(() => {});
     }
   }
   return out;

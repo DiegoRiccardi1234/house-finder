@@ -167,6 +167,16 @@ export function createAssistRouter(): Router {
         detail: `Per ${city.label} non ho un elenco già pronto. Configura una connessione AI per proporteli, oppure scrivili tu.`,
       });
     }
+    // L'AI costa una chiamata: solo su richiesta esplicita (pulsante), mai all'apertura della pagina.
+    if (req.query.ai !== '1') {
+      return res.json({
+        city: slug,
+        zones: [],
+        source: 'nessuna',
+        aiAvailable: true,
+        detail: `Per ${city.label} non ho un elenco già pronto: posso chiederlo all'AI.`,
+      });
+    }
     const out = await ask(SYSTEM_ZONE, `Città: ${city.label}.`, ZoneAI, { maxTokens: 600, task: 'zones' });
     if (!out) {
       return res.json({

@@ -93,6 +93,14 @@ async function main(): Promise<void> {
     import('../src/server/logfile.js'), import('../src/update/lock.js'), import('../src/version.js'),
   ]);
   teeConsoleToFile(STATE_DIR);
+  // Un errore asincrono sfuggito (socket IMAP chiuso dal server di posta, una promise senza
+  // catch in una libreria) non deve spegnere l'app con la scansione a metà: si scrive nel log.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[server] promise rifiutata non gestita:', (reason as Error)?.stack ?? reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[server] eccezione non gestita:', err?.stack ?? err);
+  });
 
   const lock = readLock(STATE_DIR);
   if (!APPENA_AGGIORNATO && lock !== null && !lock.stale) {

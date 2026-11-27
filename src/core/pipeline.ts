@@ -184,7 +184,10 @@ export async function ingest(
     const local = photoOf.get(key);
     const photo = local ?? l.thumb ?? null;
     const city = hints.cityByKey?.get(key) ?? citySlugOf(groupCityOf(l)) ?? citySlugOf(res?.fields?.citta) ?? undefined;
-    const geo = l.geo ?? undefined; // la posizione del portale vince sulla ricerca dell'indirizzo
+    // La posizione del portale vince sulla ricerca dell'indirizzo, ma non se è solo il quartiere e
+    // l'archivio ha già un punto più preciso (via o civico trovato da noi).
+    const prevGeo = store.get(key)?.geo;
+    const geo = l.geo && !(GEO_RANK[l.geo.precision] < GEO_RANK[prevGeo?.precision ?? 'zone']) ? l.geo : undefined;
     const rec = isFresh
       ? store.upsert(l, now, {
           channel,
@@ -272,9 +275,9 @@ export async function locateListings(
   const addressOf = (r: StoredListing): string | null => r.fields?.indirizzo?.trim() || streetFromText(r.listing.title);
   const targets = store
     .all()
-    // Anche le posizioni "di quartiere" trovate da noi: con la 1.9.2 un civico può diventare preciso
-    // (la cache risponde subito per quelle già rifatte, senza rete).
-    .filter((r) => (!r.geo || (r.geo.source === 'geocode' && r.geo.precision === 'zone')) && r.status !== 'dismissed' && addressOf(r))
+    // Anche le posizioni "di quartiere", nostre o del portale: un indirizzo scritto nell'annuncio
+    // può renderle precise (la cache risponde subito per quelle già rifatte, senza rete).
+    .filter((r) => (!r.geo || r.geo.precision === 'zone') && r.status !== 'dismissed' && addressOf(r))
     .sort((a, b) => Number(Boolean(a.geo)) - Number(Boolean(b.geo))) // prima chi non ha nessuna posizione
     .slice(0, GEOCODE_PER_RUN);
   let found = 0;
@@ -283,7 +286,8 @@ export async function locateListings(
     const zone = city ? profile.zones.find((z) => z.city === city) : undefined;
     const bbox = zone?.area?.polygon ? bboxOf(zone.area.polygon) : zone?.riferimento ? bboxOf(around(zone.riferimento), 0) : null;
     const point = await geocode(addressOf(rec)!, city ? labelOf(city) : (rec.fields?.citta ?? ''), bbox);
-    if (point) {
+    // Mai peggiorare: un quartiere trovato da noi non sostituisce quello del portale.
+    if (point && (!rec.geo || GEO_RANK[point.precision] > GEO_RANK[rec.geo.precision])) {
       rec.geo = point;
       found++;
     }
@@ -447,6 +451,9 @@ export async function runScrapers(channels: ChannelId[], opts: RunOptions): Prom
   return results;
 }
 
+/** Quanto è precisa una posizione: serve a non sostituirne una buona con una peggiore. */
+const GEO_RANK = { zone: 0, street: 1, address: 2 } as const;
+
 /** Scraper Facebook (gruppi + Marketplace) su context loggato. Richiede una sessione salvata. */
 export async function runFacebook(opts: RunOptions): Promise<RunResult> {
   const log = resolveLog(opts);
@@ -459,7 +466,7 @@ export async function runFacebook(opts: RunOptions): Promise<RunResult> {
   }
 
   const { launchBrowser, launchPersistentProfile, newContext } = await import('./browser.js');
-  const { isLoggedIn, fbProfileDir, claimProfile, alignProfileWithState, saveFbState } = await import('../sources/fb-session.js');
+  const { isLoggedIn, isBrowserClosed, fbProfileDir, claimProfile, alignProfileWithState, saveFbState } = await import('../sources/fb-session.js');
   const { scrapeGroups } = await import('../sources/facebook-groups.js');
   const { scrapeMarketplace } = await import('../sources/facebook-marketplace.js');
   const { groups, market } = loadFbConfig();
@@ -523,24 +530,30 @@ export async function runFacebook(opts: RunOptions): Promise<RunResult> {
       log('[facebook] sessione scaduta/non valida. Rilancia: npm run fb:from-brave (o fb:login)');
       return empty('facebook', ['sessione scaduta']);
     }
-    // Gruppi e Marketplace isolati: uno che fallisce non fa saltare l'altro.
+    // Gruppi e Marketplace isolati: uno che fallisce non fa saltare l'altro. Il browser chiuso
+    // invece ferma tutto: quello che è già stato letto si tiene, il resto non si può leggere.
+    let closed = false;
     try {
       collected.push(...(await scrapeGroups(ctx, groups, FB_MAX_SCROLL, onError)));
     } catch (e) {
-      onError(`gruppi falliti: ${(e as Error).message}`);
+      closed = isBrowserClosed(e);
+      onError(closed ? (e as Error).message : `gruppi falliti: ${(e as Error).message}`);
     }
-    try {
-      collected.push(...(await scrapeMarketplace(ctx, market, FB_MAX_SCROLL, onError)));
-    } catch (e) {
-      onError(`marketplace fallito: ${(e as Error).message}`);
+    if (!closed) {
+      try {
+        collected.push(...(await scrapeMarketplace(ctx, market, FB_MAX_SCROLL, onError)));
+      } catch (e) {
+        closed = isBrowserClosed(e);
+        onError(closed ? (e as Error).message : `marketplace fallito: ${(e as Error).message}`);
+      }
     }
     // Riporta nel file i cookie rinnovati, ma solo se si è ancora dentro: un profilo uscito a metà
     // non deve sovrascrivere una sessione buona.
-    if (persistent && (await isLoggedIn(ctx).catch(() => false))) {
+    if (!closed && persistent && (await isLoggedIn(ctx).catch(() => false))) {
       await saveFbState(ctx, FB_STATE_PATH).catch((e) => log(`[facebook] sessione non riesportata: ${(e as Error).message}`));
     }
   } finally {
-    await closeAll();
+    await closeAll().catch(() => {});
     release?.();
   }
   const result = await ingest(collected, 'facebook', opts);

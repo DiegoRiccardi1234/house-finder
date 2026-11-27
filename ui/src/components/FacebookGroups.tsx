@@ -96,6 +96,12 @@ export function FacebookGroups() {
     setBusy(true);
     setMsg(null);
     try {
+      // Una riga senza città non si butta via in silenzio: si chiede di completarla.
+      const senzaCitta = groups.filter((g) => g.url.trim() && !g.city);
+      if (senzaCitta.length) {
+        setMsg(`Scegli la città per: ${senzaCitta.map((g) => g.name.trim() || g.url.trim()).join(', ')}.`);
+        return;
+      }
       // Via le righe lasciate a metà: una riga senza indirizzo manderebbe lo scraper su una
       // pagina che non esiste, e l'errore arriverebbe a run avviata.
       const puliti = groups.filter((g) => g.url.trim() && g.name.trim() && g.city);

@@ -35,11 +35,23 @@ function path(): string {
   return localConfigPath(FILE);
 }
 
+/** Il file c'è ma non si legge (BOM, modifica a mano): non va mai sovrascritto con un parziale. */
+let unreadable: string | null = null;
+
 export function loadMail(): MailFile {
   if (cache) return cache;
+  unreadable = null;
+  let raw: string;
   try {
-    cache = JSON.parse(readFileSync(path(), 'utf8')) as MailFile;
+    raw = readFileSync(path(), 'utf8');
   } catch {
+    cache = {}; // file assente: primo avvio
+    return cache;
+  }
+  try {
+    cache = JSON.parse(raw.replace(/^﻿/, '')) as MailFile;
+  } catch (e) {
+    unreadable = (e as Error).message;
     cache = {};
   }
   return cache;
@@ -95,12 +107,20 @@ export function mailPublic(): { host: string; port: number; user: string; folder
 /** `undefined` = non toccare, stringa vuota = cancella. */
 export async function saveMail(patch: Partial<MailFile>): Promise<void> {
   const cur = loadMail();
+  if (unreadable) {
+    throw new Error(`${FILE} non è leggibile (${unreadable}): correggilo o cancellalo prima di salvare.`);
+  }
+  const hostBefore = mailSettings().host;
   const next: MailFile = { ...cur };
   for (const [k, v] of Object.entries(patch) as Array<[keyof MailFile, unknown]>) {
     if (v === undefined) continue;
     if (v === '' || v === null) delete next[k];
     else (next as Record<string, unknown>)[k] = v;
   }
+  // Server cambiato senza una password nuova: quella salvata era per l'altro server e non deve
+  // partire verso questo (né per sbaglio, né per una richiesta che non viene dalla UI).
+  const hostAfter = next.host || process.env.IMAP_HOST || DEFAULT_MAIL_HOST;
+  if (patch.pass === undefined && hostAfter !== hostBefore) delete next.pass;
   await writeFileAtomic(path(), JSON.stringify(next, null, 2) + '\n');
   cache = next;
 }

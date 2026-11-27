@@ -119,6 +119,7 @@ export function createApp(deps: AppDeps): Express {
 
   const app = express();
   app.locals.isArchiveBusy = () => store.isMutating;
+  app.use(localOnly);
   app.use(express.json());
   const stateDir = deps.stateDir ?? 'state';
   const updateBusy = (): boolean => { const lock = readUpdateLock(stateDir); return Boolean(lock && !lock.stale); };
@@ -131,7 +132,7 @@ export function createApp(deps: AppDeps): Express {
       if (channels.includes('email') && !imapConfigured()) throw new AgentError('mail_not_configured', 409);
       if (channels.some((c) => c !== 'email') && !browsersInstalled()) throw new AgentError('browser_missing', 409);
       if (channels.includes('facebook') && !existsSync(FB_STATE_PATH)) throw new AgentError('facebook_not_configured', 409);
-      return runManager.start(channels, (log) => runPipeline(channels, { store, log, score: false }));
+      return runManager.start(channels, (log) => thenPendingRules(runPipeline(channels, { store, log, score: false })));
     },
   });
   const chat = createChatRouter(store, stateDir, deps.chatService);
@@ -232,11 +233,30 @@ export function createApp(deps: AppDeps): Express {
     }
     if (u.protocol !== 'https:' || !isAllowedImageHost(u.hostname)) return res.status(400).end();
     try {
-      const upstream = await fetch(u.toString(), { headers: imageHeaders(u.hostname) });
-      if (!upstream.ok) return res.status(502).end();
-      const ct = upstream.headers.get('content-type') ?? 'image/jpeg';
+      // Redirect seguiti a mano e solo verso host ammessi: un wrapper di tracciamento del portale
+      // non deve poter portare il proxy su un altro sito o su un indirizzo interno.
+      let target = u;
+      let upstream: globalThis.Response | null = null;
+      for (let hop = 0; hop < 3; hop++) {
+        upstream = await fetch(target.toString(), {
+          headers: imageHeaders(target.hostname), redirect: 'manual', signal: AbortSignal.timeout(15_000),
+        });
+        if (upstream.status < 300 || upstream.status >= 400) break;
+        const loc = upstream.headers.get('location');
+        if (!loc) return res.status(502).end();
+        target = new URL(loc, target);
+        if (target.protocol !== 'https:' || !isAllowedImageHost(target.hostname)) return res.status(400).end();
+        upstream = null;
+      }
+      if (!upstream || !upstream.ok) return res.status(502).end();
+      // Solo immagini: una pagina HTML servita da qui girerebbe con l'origine dell'app.
+      const ct = (upstream.headers.get('content-type') ?? 'image/jpeg').toLowerCase();
+      if (!ct.startsWith('image/') || ct.includes('svg')) return res.status(415).end();
       const buf = Buffer.from(await upstream.arrayBuffer());
+      if (buf.length > 15 * 1024 * 1024) return res.status(413).end();
       res.setHeader('Content-Type', ct);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
       res.setHeader('Cache-Control', 'public, max-age=86400');
       res.end(buf);
     } catch {
@@ -247,10 +267,22 @@ export function createApp(deps: AppDeps): Express {
   app.use('/api/ai', createAiRouter());
   // Le regole dipendono dal profilo: dopo un salvataggio si riapplicano subito. Durante una
   // scansione no (scrive lo stesso archivio): la scansione le applica comunque alla fine.
+  // Profilo salvato a scansione in corso: le regole nuove si applicano appena la scansione finisce
+  // (quella le applica a ogni canale, ma un salvataggio dopo l'ultimo canale restava fuori).
+  let rulesPending = false;
   const reapplyRules = async (profile = loadProfile()) => {
-    if (runManager.isRunning || agent.service.isApplying) return null;
+    if (runManager.isRunning || agent.service.isApplying) {
+      rulesPending = true;
+      return null;
+    }
     return store.mutateAndSave(() => applyRules(store.all(), profile, new Date().toISOString()));
   };
+  const thenPendingRules = <T>(work: Promise<T>): Promise<T> => work.finally(async () => {
+    if (!rulesPending) return;
+    rulesPending = false;
+    await store.mutateAndSave(() => applyRules(store.all(), loadProfile(), new Date().toISOString()))
+      .catch((e) => console.warn(`[regole] non riapplicate a fine scansione: ${(e as Error).message}`));
+  });
   app.use('/api', createSetupRouter(jobs, reapplyRules));
 
   /** «Riapplica regole»: rimette in lista o scarta in base al profilo attuale. Non usa l'AI. */
@@ -438,7 +470,7 @@ export function createApp(deps: AppDeps): Express {
     }
     const channels = parsed.data.channels as ChannelId[];
     try {
-      const runId = runManager.start(channels, (log) => runPipeline(channels, { store, log }));
+      const runId = runManager.start(channels, (log) => thenPendingRules(runPipeline(channels, { store, log })));
       res.status(202).json({ runId });
     } catch (e) {
       if (e instanceof RunBusyError) return res.status(409).json({ error: 'run in corso', runId: e.runId });
@@ -495,5 +527,77 @@ export function createApp(deps: AppDeps): Express {
     if (!res.headersSent) res.status(500).json({ error: 'errore interno' });
   });
 
+  catchAsyncRoutes(app);
   return app;
+}
+
+const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+const hostnameOf = (hostHeader: string): string | null => {
+  try { return new URL(`http://${hostHeader}`).hostname; } catch { return null; }
+};
+
+/**
+ * Il server è solo per questo computer. Host diverso da localhost = una pagina web che ha fatto
+ * puntare il proprio dominio a 127.0.0.1 (DNS rebinding); Origin di un altro sito = una pagina
+ * che prova a chiamare l'API dal browser. In entrambi i casi potrebbe leggere l'archivio o
+ * mandare chiavi e password salvate verso un server suo: si rifiuta prima di qualunque route.
+ * Le origini locali con un'altra porta (Vite in sviluppo) restano ammesse.
+ */
+export function localOnly(req: Request, res: Response, next: (e?: unknown) => void): void {
+  const host = hostnameOf(req.get('host') ?? '');
+  if (!host || !LOCAL_HOSTNAMES.has(host)) {
+    res.status(403).json({ error: 'local_host_required' });
+    return;
+  }
+  const origin = req.get('origin');
+  if (origin && origin !== 'null') {
+    let ok = false;
+    try { ok = LOCAL_HOSTNAMES.has(new URL(origin).hostname); } catch { /* origine malformata */ }
+    if (!ok) {
+      res.status(403).json({ error: 'same_origin_required' });
+      return;
+    }
+  } else if (origin === 'null' && !['GET', 'HEAD'].includes(req.method)) {
+    // Origin "null" = iframe sandbox o file:// — mai la nostra UI.
+    res.status(403).json({ error: 'same_origin_required' });
+    return;
+  }
+  next();
+}
+
+interface LayerLike {
+  handle?: ((...a: unknown[]) => unknown) & { stack?: LayerLike[] };
+  route?: { stack: LayerLike[] };
+}
+
+/**
+ * Express 4 non intercetta il reject di un handler `async`: la richiesta resta appesa e, senza
+ * un gestore globale, Node 22 chiude il processo — scansione in corso compresa. Invece di
+ * contare sul `wrap()` messo a mano route per route (in tre file mancava), si avvolgono qui
+ * tutti gli handler delle route, anche nei router figli, una volta sola.
+ */
+export function catchAsyncRoutes(app: Express): void {
+  const visit = (stack: LayerLike[] | undefined): void => {
+    for (const layer of stack ?? []) {
+      if (layer.route) {
+        for (const l of layer.route.stack) {
+          const h = l.handle;
+          if (!h || h.length > 3 || (h as { __safe?: boolean }).__safe) continue;
+          const safe = function (this: unknown, req: unknown, res: unknown, next: (e?: unknown) => void) {
+            try {
+              const out = h.call(this, req, res, next) as { catch?: (f: (e: unknown) => void) => unknown } | undefined;
+              if (out && typeof out.catch === 'function') out.catch(next);
+            } catch (e) {
+              next(e);
+            }
+          };
+          (safe as { __safe?: boolean }).__safe = true;
+          l.handle = safe as LayerLike['handle'];
+        }
+      } else if (layer.handle?.stack) {
+        visit(layer.handle.stack);
+      }
+    }
+  };
+  visit((app as unknown as { _router?: { stack: LayerLike[] } })._router?.stack);
 }

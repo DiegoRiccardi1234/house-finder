@@ -30,10 +30,12 @@ export function parseMarketplaceId(href: string | null | undefined): string | nu
 /**
  * Primo prezzo in € da un testo libero (post FB). Null se assente.
  * Ancorato a €/euro per evitare falsi positivi (mq, anni, civici).
+ * Migliaia solo col punto ("1.200"): con lo spazio o l'a capo il numero dopo si attaccava al
+ * prezzo ("€650\n2 camere" diventava 6502, "piano 2 450€" diventava 2450).
  */
 export function parsePrice(text: string | null | undefined): number | null {
   if (!text) return null;
-  const m = text.match(/€\s*(\d[\d.\s]{1,6})|(\d[\d.\s]{1,6})\s*(?:€|euro|eur\b)/i);
+  const m = text.match(/€[ \t]*(\d{1,3}(?:\.\d{3})+|\d{1,5})(?![\d.]\d)|(?<![\d.,])(\d{1,3}(?:\.\d{3})+|\d{1,5})(?:,\d{1,2})?[ \t]*(?:€|euro\b|eur\b)/i);
   if (!m) return null;
   const digits = (m[1] ?? m[2] ?? '').replace(/[^\d]/g, '');
   const n = Number(digits);

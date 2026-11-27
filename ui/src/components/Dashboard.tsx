@@ -83,9 +83,13 @@ export function Dashboard({
   const [vista, setVista] = useState<'lista' | 'mappa'>('lista');
 
   useEffect(() => {
-    api.getSearches().then(setSearches).catch(() => setSearches([]));
     api.cities().then(setCities).catch(() => setCities([]));
   }, []);
+  // Le ricerche si rileggono come il profilo: chi imposta la ricerca nella stessa sessione deve
+  // vedere subito il filtro città, senza ricaricare la pagina.
+  useEffect(() => {
+    api.getSearches().then(setSearches).catch(() => setSearches([]));
+  }, [refreshToken]);
   // Il profilo serve per il nome del riferimento e il messaggio «Da chiedere»: si rilegge quando
   // l'archivio cambia (dopo un salvataggio della ricerca le regole possono aver spostato annunci).
   useEffect(() => {

@@ -15,6 +15,14 @@ state/*
 # Config personale: vince sui file pubblici in data/ (vedi src/config/paths.ts).
 data/local/
 
+# Backup privati (copie di C, archivi, sessioni, chiavi): mai versionati, ovunque si trovino.
+.house-finder-private/
+**/fb-state.json
+**/fb-browser-profile/
+**/*secrets*.json
+**/providers.json
+**/mail.json
+
 # Backup/temporanei di writeFileAtomic (src/core/atomic.ts), ovunque si trovino.
 *.bak
 *.tmp

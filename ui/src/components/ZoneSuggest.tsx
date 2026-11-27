@@ -33,10 +33,10 @@ export function ZoneSuggest({
    */
   const [modo, setModo] = useState<'keep' | 'avoid' | 'none'>('keep');
 
-  const carica = useCallback(async () => {
+  const carica = useCallback(async (ai = false) => {
     setBusy(true);
     try {
-      setSug(await api.zoneSuggestions(city));
+      setSug(await api.zoneSuggestions(city, ai));
     } catch {
       setSug({ city, zones: [], source: 'nessuna', detail: 'Elenco non disponibile.' });
     } finally {
@@ -100,8 +100,8 @@ export function ZoneSuggest({
       {!busy && zone.length === 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs text-muted">{sug?.detail ?? 'Nessun elenco per questa città.'}</p>
-          <Button size="sm" variant="ghost" onClick={() => void carica()}>
-            Riprova
+          <Button size="sm" variant="ghost" onClick={() => void carica(Boolean(sug?.aiAvailable) || sug?.source === 'nessuna')}>
+            {sug?.aiAvailable ? 'Chiedi all\'AI' : 'Riprova'}
           </Button>
         </div>
       )}

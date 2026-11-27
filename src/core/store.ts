@@ -31,6 +31,11 @@ export interface StoredListing {
   askOwner?: { reason: string } | null;
   /** Lo stesso post pubblicato altrove (altri gruppi FB): gli indirizzi dei doppioni. */
   alsoIn?: string[];
+  /**
+   * Quando l'utente (UI o agente) ha scelto lo stato a mano. Da lì le regole non toccano più
+   * l'annuncio, nemmeno se lo stato scelto è «nuovo»: rimetterlo fra i nuovi è una scelta.
+   */
+  manualAt?: string;
 }
 
 export interface AutoDecision {
@@ -42,6 +47,29 @@ export interface AutoDecision {
 type Patch = Partial<Pick<StoredListing, 'ai' | 'fields' | 'visionSummary' | 'photos' | 'notified' | 'channel' | 'city' | 'geo'>>;
 
 const DEFAULT_PATH = 'state/listings.json';
+
+/**
+ * L'annuncio rivisto da un'altra fonte con la stessa chiave (es. un alert email di un annuncio
+ * già raccolto dal portale): i dati nuovi vincono, ma quelli che mancano non cancellano i vecchi.
+ * Senza, una mail con titolo = testo del link e niente descrizione impoveriva il record.
+ */
+function mergeListing(prev: Listing | undefined, next: Listing): Listing {
+  if (!prev) return next;
+  const keep = <T>(n: T | null | undefined, p: T | null | undefined): T | null | undefined =>
+    n == null || n === '' ? p : n;
+  return {
+    ...prev,
+    ...next,
+    title: next.title?.trim() ? next.title : prev.title,
+    price: keep(next.price, prev.price) ?? null,
+    rooms: keep(next.rooms, prev.rooms),
+    sizeSqm: keep(next.sizeSqm, prev.sizeSqm),
+    zone: keep(next.zone, prev.zone),
+    thumb: keep(next.thumb, prev.thumb),
+    desc: (next.desc?.length ?? 0) >= (prev.desc?.length ?? 0) ? next.desc : prev.desc,
+    geo: keep(next.geo, prev.geo),
+  };
+}
 
 /** Chiavi che inquinerebbero Object.prototype se usate come indice (input da URL /:key). */
 function unsafeKey(k: string): boolean {
@@ -109,7 +137,7 @@ export class ListingStore {
     const prev = this.items[key];
     const rec: StoredListing = {
       key,
-      listing: l,
+      listing: mergeListing(prev?.listing, l),
       ai: patch.ai ?? prev?.ai ?? null,
       fields: patch.fields ?? prev?.fields ?? null,
       visionSummary: patch.visionSummary ?? prev?.visionSummary ?? null,
@@ -128,6 +156,7 @@ export class ListingStore {
     if (prev?.auto) rec.auto = prev.auto;
     if (prev?.askOwner) rec.askOwner = prev.askOwner;
     if (prev?.alsoIn?.length) rec.alsoIn = prev.alsoIn;
+    if (prev?.manualAt) rec.manualAt = prev.manualAt;
     this.items[key] = rec;
     return rec;
   }
@@ -137,11 +166,12 @@ export class ListingStore {
    * Una scelta manuale (UI o agente) cancella la decisione automatica: da lì in poi le regole
    * non la toccano più. `askOwner` resta: è un'informazione ("chiedi se affittano a te"), non uno stato.
    */
-  setStatus(key: string, status: ListingStatus): boolean {
+  setStatus(key: string, status: ListingStatus, nowIso: string = new Date().toISOString()): boolean {
     if (unsafeKey(key)) return false;
     const rec = this.items[key];
     if (!rec) return false;
     rec.status = status;
+    rec.manualAt = nowIso;
     delete rec.auto;
     return true;
   }

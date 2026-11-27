@@ -60,6 +60,47 @@ test('stanza in casa condivisa: scartata se nessuna ricerca è di stanze', () =>
   assert.equal(checkRules(rec({}, { tipologia: 'stanza singola', locali: null }), conStanze), null);
 });
 
+test('casa intera con spazi condivisi: non è una stanza', () => {
+  assert.equal(isRoomOffer('bilocale con giardino condiviso'), false);
+  assert.equal(isRoomOffer('trilocale ideale per condivisione'), false);
+  assert.equal(isRoomOffer('appartamento condiviso, stanza singola'), true);
+  assert.equal(isRoomOffer('camera in appartamento condiviso'), true);
+  // Chi cerca una casa da condividere accetta le offerte in condivisione.
+  const condivisa = profile({ searches: [{ id: 'c', city: 'torino', label: 'Torino · da condividere', maxPrice: 1200, minRooms: 3, tipo: 'condivisa' }] });
+  assert.equal(checkRules(rec({}, { tipologia: 'posto letto in casa condivisa', locali: null }), condivisa), null);
+});
+
+test('posizione solo di quartiere: scartata solo se molto lontana dall\'area', () => {
+  // Appena fuori dal bordo (~0,4 km a nord): impreciso, si tiene.
+  const vicino = rec({ geo: { lat: 45.0635, lng: 7.65, precision: 'zone', source: 'geocode' } });
+  assert.equal(checkRules(vicino, profile()), null);
+  // Molto fuori (~4 km a est): scartato, col motivo e la distanza.
+  const lontano = rec({ geo: { lat: 45.04, lng: 7.73, precision: 'zone', source: 'geocode' } });
+  const v = checkRules(lontano, profile());
+  assert.equal(v?.rule, 'area');
+  assert.match(v!.reason, /quartiere a \d+,\d km dall'area disegnata/);
+  // Dentro: nessun problema.
+  assert.equal(checkRules(rec({ geo: { lat: 45.04, lng: 7.65, precision: 'zone', source: 'portal' } }), profile()), null);
+});
+
+test('riattivato a mano: le regole non lo scartano più', async () => {
+  const store = await ListingStore.load(join(tmpdir(), `hf-rules-manual-${Date.now()}.json`));
+  const l = { source: 'fb-group', id: 'tri', url: 'https://fb/tri', title: 'Trilocale', price: 650 };
+  store.upsert(l, NOW, { fields: fields({ locali: 3, tipologia: 'trilocale' }) });
+  const key = store.all()[0]!.key;
+  applyRules(store.all(), profile(), NOW);
+  assert.equal(store.get(key)!.status, 'dismissed');
+  // L'utente lo rimette fra i nuovi: è una scelta, non un dato da correggere.
+  store.setStatus(key, 'new', NOW);
+  applyRules(store.all(), profile(), NOW);
+  assert.equal(store.get(key)!.status, 'new');
+  // E la scelta sopravvive alla scansione dopo.
+  store.upsert(l, NOW);
+  applyRules(store.all(), profile(), NOW);
+  assert.equal(store.get(key)!.status, 'new');
+  assert.ok(store.get(key)!.manualAt);
+});
+
 test('vendita o casa vacanza: non è un affitto', () => {
   assert.equal(checkRules(rec({}, { tipologia: 'appartamento in vendita' }), profile())?.rule, 'tipo');
   assert.equal(checkRules(rec({}, { tipologia: 'casa vacanza' }), profile())?.rule, 'tipo');

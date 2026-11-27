@@ -235,7 +235,8 @@ export function parseNotes(criteria: string): string {
   // Una sezione non rappresentata dal form (TIPOLOGIA, PREFERENZE, testo libero)
   // resta nelle note, anche quando precede NO-GO. Non troncare arbitrariamente su ---.
   const blocks = criteria.split(/(?=^[A-ZÀ-Ü][A-ZÀ-Ü -]*(?:[:—(]|\b))/m);
-  return blocks.filter((block) => !/^(?:CITTÀ|BUDGET|MUST-HAVE|ZONE)\b/i.test(block.trimStart()))
+  // Niente `\b` dopo «CITTÀ»: per JS la «À» non è una lettera, e il blocco città restava nelle note.
+  return blocks.filter((block) => !/^(?:CITTÀ|CITTA|BUDGET|MUST-HAVE|ZONE)(?![A-Za-zÀ-ÿ])/i.test(block.trimStart()))
     .join('').trim();
 }
 

@@ -102,7 +102,8 @@ channel; the browser scrapers complement it.
 **About the Facebook channel.** It is optional and off unless you enable it. It reuses *your* browser
 session (the app never asks for credentials and stores no password), requires you to join the groups
 manually — private groups show nothing to non-members — and runs at human scale on your own machine.
-The shipped `data/facebook.json` contains placeholder group URLs: put yours in there.
+The shipped `data/facebook.json` contains placeholder group URLs: add yours from *Config → Sources*
+(they are saved in `data/local/facebook.json`, which updates never touch).
 
 ### 🚀 Quickstart
 
@@ -149,13 +150,14 @@ from the bundled data where it exists and from the model where it does not.
 `OPENROUTER_API_KEY`, optional Telegram notifications (off by default — the dashboard is the
 output). Anything set in the UI wins over it.
 
-Search config lives in `data/` and can be edited by hand or from the **Config** tab:
+Search config is edited from the **Config** tab. If you prefer editing by hand, edit the copies in
+`data/local/` (same names): the files directly in `data/` are examples and **an update overwrites them**.
 
-| File | What |
+| File (in `data/local/`) | What |
 |---|---|
-| `data/criteria.md` | your criteria in plain language — this is what the model reads |
-| `data/searches.json` | search profiles: city, price cap, number of rooms |
-| `data/facebook.json` | groups and Marketplace targets |
+| `criteria.md` | your criteria in plain language — this is what the model reads |
+| `searches.json` | search profiles: city, price cap, number of rooms |
+| `facebook.json` | groups and Marketplace targets |
 
 **Two layers.** The files in `data/` are versioned examples. Anything in `data/local/` — gitignored —
 wins on read, and **every write from the UI goes there**. So your real budget and neighbourhoods stay
@@ -285,7 +287,8 @@ canale principale, gli scraper lo completano.
 **Sul canale Facebook.** È opzionale e spento finché non lo attivi. Riusa la *tua* sessione browser
 (l'app non chiede credenziali e non salva password), richiede che tu abbia joinato i gruppi a mano — i
 gruppi privati non mostrano nulla ai non-membri — e gira a ritmo umano sulla tua macchina. Il
-`data/facebook.json` incluso ha URL segnaposto: mettici i tuoi.
+`data/facebook.json` incluso ha URL segnaposto: aggiungi i tuoi da *Config → Fonti* (finiscono in
+`data/local/facebook.json`, che gli aggiornamenti non toccano).
 
 ### 🚀 Avvio rapido
 
@@ -335,13 +338,14 @@ Il `.env` funziona ancora e viene letto come ripiego (vedi `.env.example`): host
 IMAP, `OPENROUTER_API_KEY`, notifiche Telegram opzionali (spente di default — l'output è la
 dashboard). Quello che imposti nella UI vince su di lui.
 
-La config di ricerca sta in `data/`, modificabile a mano o dal tab **Config**:
+La config di ricerca si modifica dal tab **Config**. Se preferisci a mano, modifica le copie in
+`data/local/` (stessi nomi): i file direttamente in `data/` sono esempi e **un aggiornamento li sovrascrive**.
 
-| File | Cosa |
+| File (in `data/local/`) | Cosa |
 |---|---|
-| `data/criteria.md` | i tuoi criteri in linguaggio naturale — è quello che legge il modello |
-| `data/searches.json` | profili di ricerca: città, tetto di prezzo, numero di locali |
-| `data/facebook.json` | gruppi e target Marketplace |
+| `criteria.md` | i tuoi criteri in linguaggio naturale — è quello che legge il modello |
+| `searches.json` | profili di ricerca: città, tetto di prezzo, numero di locali |
+| `facebook.json` | gruppi e target Marketplace |
 
 **Due livelli.** I file in `data/` sono esempi versionati. Quelli in `data/local/` — gitignorato —
 vincono in lettura, e **tutte le scritture della UI finiscono lì**. Così il tuo budget vero e i tuoi

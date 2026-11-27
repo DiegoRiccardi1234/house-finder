@@ -278,14 +278,20 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
   };
 
   /** Quello che l'AI ha capito riempie i campi; il resto di ciò che c'era non si butta via. */
+  // La risposta dell'AI arriva dopo secondi o minuti: si fonde con il profilo di QUEL momento,
+  // non con quello del clic, altrimenti si perde quanto modificato nel frattempo (area, soglia…).
   const daAssistente = (parziale: Partial<Profile>): void => {
     const searches = (parziale.searches ?? []).map((r) => ({ ...r, label: r.label || etichetta(r.city, tipoDi(r)) }));
-    setP({
-      ...p,
-      searches: searches.length ? searches : p.searches,
-      zones: parziale.zones?.length ? parziale.zones.map((z) => ({ ...zonaDi(z.city), ...z })) : p.zones,
-      musts: parziale.musts?.length ? parziale.musts : p.musts,
-      notes: parziale.notes?.trim() ? parziale.notes : p.notes,
+    setP((prev) => {
+      if (!prev) return prev;
+      const zonaPrev = (city: string): CityZones => prev.zones.find((z) => z.city === city) ?? { city, keep: [], avoid: [] };
+      return {
+        ...prev,
+        searches: searches.length ? searches : prev.searches,
+        zones: parziale.zones?.length ? parziale.zones.map((z) => ({ ...zonaPrev(z.city), ...z })) : prev.zones,
+        musts: parziale.musts?.length ? parziale.musts : prev.musts,
+        notes: parziale.notes?.trim() ? parziale.notes : prev.notes,
+      };
     });
   };
 
@@ -300,7 +306,11 @@ export function SearchEditor({ onSaved }: { onSaved?: () => void }) {
       setGenerato(s.generated);
       setMsg({
         tono: 'ok',
-        testo: s.skipped?.length ? `Salvato. Non ho tenuto ${s.skipped.length} riga/e incompleta/e.` : 'Salvato. Gli annunci già trovati sono stati ricontrollati con le regole nuove.',
+        testo: s.skipped?.length
+          ? `Salvato. Non ho tenuto ${s.skipped.length} riga/e incompleta/e.`
+          : s.rulesApplied === false
+            ? 'Salvato. C\'è una scansione in corso: gli annunci verranno ricontrollati con le regole nuove quando finisce.'
+            : 'Salvato. Gli annunci già trovati sono stati ricontrollati con le regole nuove.',
       });
       onSaved?.();
     } catch (e) {

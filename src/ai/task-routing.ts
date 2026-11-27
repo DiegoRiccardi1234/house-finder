@@ -6,9 +6,10 @@ import { getProvider } from './providers/registry.js';
 import { createCompatProvider } from './providers/openai-compat.js';
 import { createAnthropicProvider } from './providers/anthropic.js';
 import { specOf } from './providers/catalog.js';
-import type { ChatReply, ChatRequest, ProviderId } from './providers/types.js';
+import { refKey, type ChatReply, type ChatRequest, type ProviderId } from './providers/types.js';
 import { runtimeChat, runtimeStatus, RuntimeError } from './runtime.js';
-import { pickHealthyModels } from './endpoint-health.js';
+import { pickHealthyModels, recordPenalty } from './endpoint-health.js';
+import { classifyFailure } from './providers/errors.js';
 export { routeConfigured, hasExplicitRoute } from './connections.js';
 export type { AiTask } from './connections.js';
 export { closeRuntimes } from './runtime.js';
@@ -70,11 +71,17 @@ export async function taskChat(task: AiTask, request: TaskChatRequest): Promise<
   const config = connectionConfig();
   const route = config.tasks[task];
   if (!route) {
-    const chain = await buildChainForTask(task === 'vision' ? 'vision' : 'reasoning');
+    // Al massimo tre modelli: oltre, di solito il problema non è il modello. E chi fallisce viene
+    // penalizzato (troncamento, 429, vuoto), così il messaggio dopo non ci ricasca subito.
+    const chain = (await buildChainForTask(task === 'vision' ? 'vision' : 'reasoning')).slice(0, 3);
     for (const ref of chain) {
       if (request.signal?.aborted) throw new RuntimeError('cancelled');
       try { return normalize(await getProvider(ref.provider).chat({ ...request, model: ref.model }), request); }
-      catch (error) { if (request.signal?.aborted) throw new RuntimeError('cancelled'); void error; }
+      catch (error) {
+        if (request.signal?.aborted) throw new RuntimeError('cancelled');
+        const reason = classifyFailure(error);
+        if (reason) recordPenalty(refKey(ref), reason);
+      }
     }
     throw new TaskRoutingError('no_result', 'Nessun motore AI ha completato la richiesta.');
   }

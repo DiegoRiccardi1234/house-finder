@@ -131,10 +131,18 @@ async function attendiSbloccoNodeExe(root: string): Promise<void> {
   // Scaduto: si prova lo stesso, e sarà la copia con i suoi tentativi a dire quale file è bloccato.
 }
 
+/**
+ * Il `tar` di Windows, per percorso assoluto: se nel PATH viene prima quello GNU di Git, legge
+ * `D:\…` come «host D» e fallisce, e si finisce sul ripiego lento di Expand-Archive.
+ */
+const TAR = process.platform === 'win32'
+  ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
+  : 'tar';
+
 function estrai(zip: string, dest: string): void {
   let entries: string[];
   try {
-    entries = execFileSync('tar', ['-tf', zip], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, windowsHide: true }).split(/\r?\n/).filter(Boolean);
+    entries = execFileSync(TAR, ['-tf', zip], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, windowsHide: true }).split(/\r?\n/).filter(Boolean);
   } catch {
     const escaped = zip.replace(/'/g, "''");
     const command = `Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::OpenRead('${escaped}'); try { $z.Entries | ForEach-Object { $_.FullName } } finally { $z.Dispose() }`;
@@ -143,7 +151,7 @@ function estrai(zip: string, dest: string): void {
   }
   validateArchiveEntries(entries);
   try {
-    execFileSync('tar', ['-xf', zip, '-C', dest], { stdio: 'ignore', windowsHide: true });
+    execFileSync(TAR, ['-xf', zip, '-C', dest], { stdio: 'ignore', windowsHide: true });
   } catch {
     execFileSync(
       'powershell',

@@ -36,9 +36,10 @@ export function floorKind(piano: string | null | undefined): FloorKind | null {
   if (!piano) return null;
   const s = piano.toLowerCase().trim();
   if (/ultim|attico|mansard/.test(s)) return 'ultimo';
-  const of = s.match(/(\d+)\D+di\D+(\d+)/);
+  const of = s.match(/(\d+)\D+(?:di|su|\/)\D*(\d+)/);
   if (of && of[1] === of[2]) return 'ultimo';
-  if (/terra|rialzat|seminterr|^t\b|^pt\b|^0\b|^piano\s*0\b/.test(s)) return 'terra';
+  // Seminterrato e interrati («-1», «S1») contano come terra: sono il caso da evitare insieme.
+  if (/terra|rialzat|seminterr|interrat|^-\s*\d|^s\s*\d|^t\b|^pt\b|^0\b|^piano\s*0\b/.test(s)) return 'terra';
   const n = s.match(/\d+/);
   if (n) return Number(n[0]) === 0 ? 'terra' : 'intermedio';
   return null;
@@ -57,11 +58,15 @@ export function distanceOf(r: StoredListing, profile: Profile): number | null {
   return Math.round(haversineKm(r.geo, ref) * 10) / 10;
 }
 
-function inArea(r: StoredListing, profile: Profile): boolean | null {
-  if (!r.geo) return null;
+/**
+ * Dentro l'area della sua città? `'n/a'` = per quella città non c'è un'area disegnata: il filtro
+ * non la riguarda e l'annuncio resta (prima valeva come "posizione ignota" e spariva).
+ */
+function inArea(r: StoredListing, profile: Profile): boolean | null | 'n/a' {
   const city = cityOf(r, profile);
   const poly = (city ? profile.zones.find((z) => z.city === city) : undefined)?.area?.polygon;
-  if (!poly) return null;
+  if (!poly || poly.length < 3) return 'n/a';
+  if (!r.geo) return null;
   return insidePolygon(r.geo, poly);
 }
 

@@ -33,11 +33,23 @@ function path(): string {
   return localConfigPath(FILE);
 }
 
+/** Il file c'è ma non si legge (BOM, modifica a mano): non va mai sovrascritto con un parziale. */
+let unreadable: string | null = null;
+
 export function loadCreds(): CredFile {
   if (cache) return cache;
+  unreadable = null;
+  let raw: string;
   try {
-    cache = JSON.parse(readFileSync(path(), 'utf8')) as CredFile;
+    raw = readFileSync(path(), 'utf8');
   } catch {
+    cache = {}; // file assente: primo avvio
+    return cache;
+  }
+  try {
+    cache = JSON.parse(raw.replace(/^﻿/, '')) as CredFile;
+  } catch (e) {
+    unreadable = (e as Error).message;
     cache = {};
   }
   return cache;
@@ -48,6 +60,11 @@ export function invalidateCreds(): void {
 }
 
 async function save(next: CredFile): Promise<void> {
+  loadCreds();
+  if (unreadable) {
+    // Salvare ora scriverebbe solo la modifica nuova e cancellerebbe tutte le altre chiavi.
+    throw new Error(`${FILE} non è leggibile (${unreadable}): correggilo o cancellalo prima di salvare.`);
+  }
   await writeFileAtomic(path(), JSON.stringify(next, null, 2) + '\n');
   cache = next;
 }
@@ -102,8 +119,12 @@ export async function saveKey(id: ProviderId, key: string | undefined, baseUrl?:
     else next.keys![id] = key;
   }
   if (baseUrl !== undefined) {
+    const before = endpointFor(id);
     if (baseUrl === '') delete next.endpoints![id];
     else next.endpoints![id] = baseUrl;
+    // Indirizzo cambiato senza una key nuova: la key salvata non deve partire verso un altro server.
+    const after = next.endpoints![id] ?? (id === 'custom' ? process.env.CUSTOM_BASE_URL ?? '' : specOf(id).baseURL);
+    if (key === undefined && after !== before) delete next.keys![id];
   }
   clearKeyInvalid(id);
   await save(next);
@@ -135,10 +156,16 @@ export function primaryProvider(): ProviderId {
   return configuredProviders()[0] ?? 'openrouter';
 }
 
-/** Primario per primo, poi gli altri configurati: è l'ordine del failover. */
+/**
+ * Primario per primo, poi gli altri configurati: è l'ordine del failover.
+ *
+ * Fra i ripieghi entrano solo i provider con un tier gratuito. Un provider a pagamento si usa
+ * solo se è il primario, cioè scelto dall'utente: una key di sistema (es. `OPENAI_API_KEY` nel
+ * PATH per altri programmi) non deve mai diventare una spesa silenziosa quando i free danno 429.
+ */
 export function providerOrder(): ProviderId[] {
   const primary = primaryProvider();
-  const rest = configuredProviders().filter((p) => p !== primary);
+  const rest = configuredProviders().filter((p) => p !== primary && specOf(p).free);
   return isConfigured(primary) ? [primary, ...rest] : rest;
 }
 
